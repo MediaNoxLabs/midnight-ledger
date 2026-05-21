@@ -27,6 +27,9 @@ members = [
     "storage-core",
     "mobile-bench/prover-core",
     "mobile-bench/dioxus-bench",
+    "mobile-bench/wallet-core",
+    "mobile-bench/dioxus-wallet",
+    "mobile-bench/contract-benchmark",
 ]
 default-members = [
     "zswap",
