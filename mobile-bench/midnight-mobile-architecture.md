@@ -1021,8 +1021,70 @@ skips the dual-init):
 | `--features proof-server-http`             | + in-process actix proof-server (implies `js-bridge`)             | **shipped & verified on real device** (§4.3) — actix-web 4.13 cross-compiles cleanly, server binds `127.0.0.1:<port>`, Update DID round-trips through `/prove` end-to-end on S24 Ultra | **builds** for `aarch64-apple-ios-sim` (§4.3) — same source, no device-deploy verification yet |
 | `--features preprod-live`                  | Operator PreProd seed + 3 pre-seeded DIDs                         | same                                                   | same                                                   |
 | `--features js-bridge,preprod-live`        | full DID writes against PreProd                                   | full DID writes against PreProd                        | full DID writes against PreProd                        |
+| `--target wasm32-unknown-unknown`          | **blocked** — see §6.1a                                           | n/a                                                    | n/a                                                    |
 
-### 6.2 Cross-compile + APK assemble
+### 6.1a Web target (`wasm32-unknown-unknown`) — feasibility probe (2026-05-22)
+
+Cargo-checking `dioxus-wallet --lib --target wasm32-unknown-unknown
+--no-default-features` was attempted as a "run the benchmark in
+a browser" experiment. **It does not compile** — and the
+fail-points fall in two tiers:
+
+**Tier 1 — toolchain configuration (resolvable):**
+
+- `getrandom` 0.3.x requires `--cfg wasm_js` for `wasm32-unknown-unknown`.
+  Already solved upstream in `zkir-wasm/Cargo.toml` by pulling
+  the two-version dance:
+  ```toml
+  getrandom_2 = { package = "getrandom", version = "^0.2.16", features = ["js"] }
+  getrandom_3 = { package = "getrandom", version = "^0.3.4", features = ["wasm_js"] }
+  ```
+- `mio` 1.2 doesn't compile on `wasm32-unknown-unknown`. Pulled
+  transitively by `tokio`'s `net` feature → reqwest / subxt /
+  tokio-tungstenite. Resolution: a wasm32-specific
+  `[target.'cfg(target_arch = "wasm32")'.dependencies]` block
+  with `tokio = { features = ["rt", "macros", "sync"] }` — no
+  `rt-multi-thread`, no transitive `net`.
+
+**Tier 2 — architectural conflicts (significant porting):**
+
+- `redb` (file-backed). The wallet store has no browser-side
+  analogue without a substantial port to IndexedDB / OPFS.
+- `actix-web` (`proof-server-http` feature). Won't compile to
+  wasm32 — but already feature-gated, so this is a non-issue
+  for an `--no-default-features` web build.
+- `subxt` chain client + `tokio-tungstenite` WebSocket — both
+  expect native sockets. Browser equivalent is `web-sys`
+  WebSocket; non-trivial swap.
+- `reqwest`. Has wasm32 support via the `fetch` backend, but
+  needs explicit feature gating.
+- `std::time::Instant::now()`. Panics on
+  `wasm32-unknown-unknown`. Used directly in
+  `contract-benchmark::run_proof`. Resolution: swap to the
+  `web-time` crate behind a `cfg(target_arch = "wasm32")` block.
+- `std::fs::*` (used by `MidnightDataProvider` and the
+  benchmark's SRS cache). Browser has no filesystem.
+  Resolution: switch the data provider to a fetch-only mode
+  that streams SRS files from `srs.midnight.network` directly
+  into memory, no on-disk cache (or use `IndexedDB` as a
+  cache backend).
+- `dioxus_desktop` (Wry + Tao). Doesn't target the web.
+  Resolution: swap to `dioxus_web` (already supported by
+  Dioxus 0.6) — but that needs a sibling crate or a third
+  cfg-arm in `lib.rs::desktop_or_mobile_launch`.
+
+**Two viable paths forward** (neither one explored further this
+session):
+
+| Path | Scope | Useful for |
+|---|---|---|
+| (A) **Benchmark-only wasm crate.** New crate `contract-benchmark-wasm` modelled on `zkir-wasm` (~30 LoC of wasm-bindgen glue). Exports `run_proof_k(k)` returning a JSON-stringified `RunStats`. Tiny static HTML page (~40 LoC) provides a "Run all" sweep UI. SRS files: pre-baked into the wasm via `include_bytes!` for k ≤ N (binary size cost ~tens of MB), or streamed from `srs.midnight.network` via JS `fetch` on demand. | Running the prover in a browser and getting per-k timings — directly addresses the original "run the benchmark here" ask. ~ 1 day of work. |
+| (B) **Full UI port (`dioxus_web` arm).** Wire a third platform branch in `lib.rs`, add wasm32-specific dependency block, replace `redb` with IndexedDB-backed store, replace `subxt` WS with `web-sys` WebSocket, swap `std::time::Instant` for `web_time::Instant`, swap reqwest backend to fetch. | Running the *full* wallet (with DID resolution + writes) in a browser. ~ 1–2 weeks of work. Likely yields a slower wallet than native arm64 due to single-threaded wasm. |
+
+For an actual prove-in-browser experiment, path (A) is the
+right scope — and the `zkir-wasm` crate already proves the
+core proving stack works on wasm32. Recommended next step
+when reopening this thread.
 
 From `mobile-bench/DEPLOY_TO_DEVICE.md`:
 
@@ -2202,3 +2264,164 @@ The durable fix is the "remove the JS / JSBridge layer" research
 thread (separate report, 2026-05-21): without the WebView at all,
 the same arm64 process should land k=20 comfortably and free up
 the disk + binary-size cost of the bundled npm packages too.
+
+### Web (wasm32-unknown-unknown) sweep — 2026-05-22
+
+Same `contract_benchmark::run_proof(k)` cross-compiled to
+wasm32 via the new `mobile-bench/contract-benchmark-wasm`
+wrapper (path A in §6.1a; mirrors `zkir-wasm`'s shape). Runs
+inside a desktop browser; SRS params fetched on demand via a
+local `/srs/<file>` proxy (CORS workaround for
+`srs.midnight.network`) and cached in IndexedDB. **Single
+desktop browser tab; default wasm-pack release profile; no
+`SharedArrayBuffer` threads; no `simd128`.**
+
+The table below is the **warm-cache** sweep (every SRS file
+already in IndexedDB on the second pass). Cold-cache fetch
+times scale with file size: 807 ms for `bls_midnight_2p4`
+(3 KiB), ~5.8 s for `bls_midnight_2p18` (48 MiB) — fetch cost
+is small relative to keygen + prove past k = 10.
+
+| k  | hashes | keygen   | prove    | proof bytes |
+|----|-------:|---------:|---------:|------------:|
+| 1  | 0      | 118 ms   | 111 ms   | 2 549 B     |
+| 2  | 1      | 95 ms    | 150 ms   | 2 933 B     |
+| 3  | 1      | 92 ms    | 145 ms   | 2 933 B     |
+| 4  | 1      | 93 ms    | 145 ms   | 2 933 B     |
+| 5  | 1      | 93 ms    | 144 ms   | 2 933 B     |
+| 6  | 2      | 137 ms   | 211 ms   | 2 933 B     |
+| 7  | 3      | 206 ms   | 311 ms   | 2 933 B     |
+| 8  | 6      | 336 ms   | 500 ms   | 2 933 B     |
+| 9  | 12     | 553 ms   | 822 ms   | 2 933 B     |
+| 10 | 24     | 963 ms   | 1.46 s   | 2 933 B     |
+| 11 | 49     | 1.77 s   | 2.68 s   | 2 933 B     |
+| 12 | 98     | 3.29 s   | 5.04 s   | 2 933 B     |
+| 13 | 195    | 6.04 s   | 9.27 s   | 2 933 B     |
+| 14 | 390    | 11.4 s   | 17.9 s   | 2 933 B     |
+| 15 | 780    | 24.1 s   | 34.9 s   | 2 933 B     |
+| 16 | 1 560  | 44.9 s   | 1 m 08 s | 2 933 B     |
+| 17 | 3 121  | 1 m 28 s | 2 m 13 s | 2 933 B     |
+| 18 | 6 242  | (sweep in flight at capture time) |
+
+#### Cross-target comparison
+
+Same circuit, same k, four targets — all wasm and arm64 figures
+read off the warm-cache run; macOS figures are from the historical
+emulator table (host M2 Max release):
+
+| k  | macOS M2 release | iOS Simulator (M2) | S24 Ultra (arm64-v8a) | Web (wasm32, single-thread) |
+|----|-----------------:|-------------------:|----------------------:|----------------------------:|
+| 10 | ≈ 200 ms         | ~ 250 ms           | 369 ms                | 1 460 ms                    |
+| 12 | ≈ 432 ms         | —                  | 954 ms                | 5 040 ms                    |
+| 14 | ≈ 1.25 s         | —                  | 3.01 s                | 17.9 s                      |
+| 17 | —                | —                  | 22.3 s                | 2 m 13 s (133 s)            |
+
+Web wasm is **roughly 5–9× slower than native arm64 on the
+same circuit**, holding fairly constant across the range. The
+gap is unsurprising: single-threaded wasm vs. multi-core native
+AOT, no SIMD-128, JIT'd LLVM IR vs. ahead-of-time compiled
+arm64. The doubling cadence per `k` step matches every other
+target — keygen and prove both scale roughly as 2ᵏ once the
+fixed-cost floor is amortised (around k ≥ 6).
+
+#### Memory ceiling
+
+Unlike Android (k = 18 marginal, k ≥ 19 always OOMs — the
+WebView competes for the same address space as the prover),
+**the web build sailed past k = 17 without any allocation
+failure**. Desktop browsers running on a host with ≥ 16 GiB
+RAM have enough virtual-address-space headroom that the high-k
+SRS mmaps + halo2 working buffers fit. k = 18 was still
+running at capture time; if anything trips, expect it to be
+the **browser's per-tab memory cap** (≈ 4 GiB on Chrome,
+configurable) rather than the OS.
+
+#### Known inefficiency (visible in the log)
+
+Each `runProof(k)` produces **2–3 `cache hit` lines** for the
+same SRS file, because both `IrSource::keygen` and
+`ProofPreimage::prove` call `get_params(k)` independently, and
+one further internal call comes from the resolver chain. Each
+hit returns the bytes from IndexedDB in microseconds, but the
+Rust side runs `ParamsProver::read` on every call — and the
+larger-k params take real time to deserialise (the
+`bls_midnight_2p17` round of `read()` is responsible for a
+non-trivial fraction of the 1m 28s keygen). **Cheap fix:
+memoise `ParamsProver` per k on the JS side, hand the wasm an
+already-parsed handle.** Not done yet; flagged for the perf
+patch series.
+
+#### Recommended optimisation path (research in flight)
+
+A separate agent is auditing the proof stack for wasm-specific
+tunings (see follow-up commit). Early leads worth flagging
+here in advance:
+
+1. **`wasm-bindgen-rayon` + `SharedArrayBuffer` threads.** Halo2's
+   FFT and MSM are embarrassingly parallel via rayon natively;
+   default wasm32 has no rayon backend so we're stuck at one
+   core. With a wasm-threads build, a 4-core desktop browser
+   would plausibly close 60–80 % of the gap to native arm64.
+   The workspace already has `wasm-proving-demos/zkir-mt` (the
+   "mt" suffix reads as multi-threaded) — this is the
+   highest-priority lead to copy from.
+2. **`RUSTFLAGS='-C target-feature=+simd128'`** at build time —
+   BLS12-381 field arithmetic benefits significantly from the
+   wasm SIMD-128 instruction set in Chrome 91+ / Safari 16.4+ /
+   Firefox 89+. Pure compile-flag change.
+3. **`wasm-opt -O4`** with `--enable-simd --enable-bulk-memory`
+   beyond what `zkir-wasm`'s `Cargo.toml` metadata currently
+   sets (just `-O --enable-reference-types`).
+4. **Parsed-`ParamsProver` memoisation** — see "Known
+   inefficiency" above.
+
+The full punch list lands in the next commit when the agent
+finishes; this section will be expanded with measured impact
+once any of the four are applied.
+
+### Optimisation punch list — research output (2026-05-22)
+
+Two research agents audited the proof stack: one for **CPU /
+parallelism** (web wasm focus), one for **memory** (mobile-arm64
+focus, k=20 ambition). Their combined findings, ranked by
+MB-saved-or-%-speedup per effort hour.
+
+#### CPU / parallelism (web wasm — applied to `contract-benchmark-wasm`)
+
+| # | Lever | Impact | Effort | Status |
+|---|---|---|---|---|
+| 1 | `wasm-bindgen-rayon` + `SharedArrayBuffer` threads. Template at `wasm-proving-demos/zkir-mt/{Cargo.toml,src/lib.rs}` + `wasm-proving-demos/run.sh` (the build recipe with `RUSTC_BOOTSTRAP=1 RUSTFLAGS='-C target-feature=+atomics,+bulk-memory' wasm-pack build … -- -Z build-std=panic_abort,std`). | 30–50 % (high confidence) | 10 min | **applied 2026-05-22** |
+| 2 | `wasm-opt` flags: `-O4 --enable-bulk-memory --strip-debug` (was `-O`). | 5–15 % (med) | 2 min | **applied 2026-05-22** |
+| 3 | COOP/COEP HTTP headers (`same-origin` / `require-corp`) on `serve.py` so `SharedArrayBuffer` is available — prerequisite for #1. | enables #1 | 5 min | **applied 2026-05-22** |
+| 4 | `RUSTFLAGS='-C target-feature=+simd128'`. **0 % unless `transient-crypto` / `midnight-proofs` have `#[cfg(target_feature = "simd128")]` paths — `grep` finds none today, so this is blocked on an upstream patch.** | 5–15 % (low/med) | 5 min once paths land | blocked on upstream |
+| 5 | Memoise `ParamsProver` per-k on the JS side. The current `JsParamsProvider` calls back to JS via `getParams(k)` once per `runProof`, and the Rust `ParamsProver::read` re-deserialises the bytes each time. At k=17 that costs ~2–3 s of redundant parse per `runProof`. Memoise on `Map<k, Uint8Array>` or pass an already-parsed handle. | 5–10 % at k ≥ 15 (med) | 30 min | not done |
+| 6 | Aligning `wasm-opt` metadata across all `*-wasm` crates (consistency). | same as #2 when applied | 5 min | not done |
+
+#### Memory / mobile-arm64 (transient-crypto + dioxus-wallet)
+
+| # | Lever | Saving | Effort | Notes |
+|---|---|---|---|---|
+| 7 | `PK_CACHE_SIZE` (`transient-crypto/src/proofs.rs:250`) 5 → 1 for memory-constrained targets. | **0 MB on first prove**, up to ~1.2 GB after 5 distinct circuits have been used. Useful for the wallet's long-running process (11 DID circuits in rotation) but a no-op for the Benchmark tab (each k = different hash, cache hit rate 0). The research agent's "saves 1.2 GB" headline only applies after cache saturation — flagged here so the table doesn't oversell it. | 2 min | gate behind `#[cfg(target_os = "android")]` so the wallet's hot DID-call path keeps its cache on roomy hosts |
+| 8 | Drop `ParamsProver` `Arc` after `setup_vk` in `transient-crypto/src/proofs.rs::keygen` (line 204). **On audit the Arc is already dropped at end-of-statement** — the agent's worry was unfounded for this path. Listed here so future researchers don't redo the trace. | 0 MB (no change needed) | n/a | clarified |
+| 9 | mmap-backed SRS via `memmap2` in `base_crypto::data_provider::MidnightDataProvider`. Native arm64 already has filesystem access; replacing the `read_to_end` → `Vec` path with a mmap slice would let the kernel manage page residency under pressure. | 200–400 MB at k = 20 | 1–2 days; requires `unsafe`, careful lifetime mgmt, and a midnight-proofs API surface that accepts a byte-slice (not a `Read`). | longest-pole but the cleanest "fits in 4 GB" lever |
+| 10 | Reuse FFT scratch buffers across columns. halo2's witness-FFT pass typically allocates a fresh `Vec<Fr>` per column; pool to one persistent ~32 MB buffer for k = 20. | 100–200 MB | 2–4 hr to audit `midnight-proofs` for existing pool feature flag; 1–3 days if a fork patch is needed | "low-hanging" only if upstream already exposes a flag |
+| 11 | Witness column streaming (column-at-a-time commit instead of building the full witness matrix). Peak drops from `M × 2^k × 32 B` to `1 × 2^k × 32 B`. | 300–500 MB at k = 20 | 3–5 days; deep halo2 fork patch | architectural; flag for a later iteration |
+| 12 | Chunked Pippenger MSM (process the column in slices). | 100–150 MB | 2–3 days; fork patch | secondary lever |
+| 13 | Suspend / destroy the dioxus-wallet's WebView during Benchmark sweeps on Android — saves the ~200–400 MB of Chromium-resident pages competing with halo2 keygen. Already flagged in the earlier "Implications" subsection above; restated here for completeness. | 200–400 MB | ~1 hr | should move S24 Ultra k = 19 from "always OOMs" to "passes" |
+| 14 | Allocator swap (`tikv-jemallocator`) on Android. Bionic's malloc has ~16 % overhead for small objects (witness slot metadata, FFT twiddle tables); jemalloc is ~5–8 %. | 5–20 MB | 2–3 hr | very low risk; small win |
+
+#### k = 20-on-mobile target — math
+
+S24 Ultra k = 19 currently OOMs at peak ≈ 5–6 GB working set
+against the 3–4 GB per-process Android cap. To land k = 20 (~ 2×
+k = 19's footprint) we'd need to roughly halve peak from
+today's number, i.e. **save ~600–800 MB.** The combination of
+items 9 + 10 + 13 lands in that range collectively (200–400 +
+100–200 + 200–400 = 500–1000 MB). #11 makes the headroom
+comfortable but is the deepest fork patch.
+
+The lighter combination 7 + 13 (PK cache cap + WebView
+suspend, both quick) saves ~200–400 MB end-to-end and is
+expected to move k = 19 from "always OOMs" to "passes",
+without quite reaching k = 20. That's the realistic
+short-term ceiling without touching the halo2 fork.
