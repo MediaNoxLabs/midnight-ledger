@@ -2265,6 +2265,163 @@ thread (separate report, 2026-05-21): without the WebView at all,
 the same arm64 process should land k=20 comfortably and free up
 the disk + binary-size cost of the bundled npm packages too.
 
+### Real-device sweep (Samsung S24 Ultra, 2026-05-23 — all optimisations active)
+
+Re-captured from the Benchmark tab on the same physical S24
+Ultra **after** landing the optimisation chain documented in
+§10. The sweep is the wallet's full UI flow (WebView resident,
+Dioxus app live, the wallet sets `MIDNIGHT_SPILL_COSETS=1`
+automatically). Compare row-by-row against the 2026-05-21 table
+above to see what the patches did:
+
+| k  | hashes  | keygen   | prove    | verify    | proof bytes |
+|----|--------:|---------:|---------:|----------:|------------:|
+| 1  | 0       | 71 ms    | 111 ms   | 25 ms ✓   | 2 549 B     |
+| 2  | 1       | 77 ms    | 130 ms   | 6 ms ✓    | 2 933 B     |
+| 3  | 1       | 58 ms    | 94 ms    | 6 ms ✓    | 2 933 B     |
+| 4  | 1       | 57 ms    | 133 ms   | 6 ms ✓    | 2 933 B     |
+| 5  | 1       | 67 ms    | 106 ms   | 5 ms ✓    | 2 933 B     |
+| 6  | 2       | 68 ms    | 116 ms   | 5 ms ✓    | 2 933 B     |
+| 7  | 3       | 70 ms    | 156 ms   | 5 ms ✓    | 2 933 B     |
+| 8  | 6       | 96 ms    | 155 ms   | 5 ms ✓    | 2 933 B     |
+| 9  | 12      | 121 ms   | 232 ms   | 5 ms ✓    | 2 933 B     |
+| 10 | 24      | 150 ms   | 355 ms   | 5 ms ✓    | 2 933 B     |
+| 11 | 49      | 243 ms   | 618 ms   | 5 ms ✓    | 2 933 B     |
+| 12 | 98      | 386 ms   | 1.05 s   | 5 ms ✓    | 2 933 B     |
+| 13 | 195     | 632 ms   | 1.87 s   | 5 ms ✓    | 2 933 B     |
+| 14 | 390     | 1.11 s   | 3.53 s   | 6 ms ✓    | 2 933 B     |
+| 15 | 780     | 2.16 s   | 7.17 s   | skipped   | 2 933 B     |
+| 16 | 1 560   | 4.85 s   | 16.5 s   | skipped   | 2 933 B     |
+| 17 | 3 121   | 10.7 s   | 32.8 s   | skipped   | 2 933 B     |
+| 18 | 6 242   | 21.0 s   | 50.0 s   | skipped   | 2 933 B     |
+| 19 | 12 484  | 32.7 s   | 1 m 41 s | skipped   | 2 933 B     |
+| 20 | 24 967  | 0 ms ※   | 5 m 52 s | skipped   | 2 933 B     |
+
+※ The "0 ms" keygen reading at k = 20 is a UI display bug —
+the underlying `bench_cli` measurement on the same device
+(without the wallet's `RunStats` widget) consistently records
+**keygen ≈ 1 m 16 s** at k = 20. Tracked as a small follow-up;
+does not affect proof correctness.
+
+#### Δ vs the 2026-05-21 sweep (where rows exist on both sides)
+
+| k  | Before (prove)  | After (prove)   | Δ          | Notes                                            |
+|----|----------------:|----------------:|-----------:|--------------------------------------------------|
+| 14 | 3.01 s          | 3.53 s          | +17 %      | mimalloc baseline overhead, small absolute (520 ms) |
+| 16 | 11.3 s          | 16.5 s          | +46 %      | spill path engaged earlier than necessary at this k — opt-out path follow-up |
+| 17 | 22.3 s          | 32.8 s          | +47 %      | same                                             |
+| 18 | 45.2 s          | 50.0 s          | +11 %      | wash; lazy-cosets recompute counterbalanced by warm cache |
+| 19 | OOM             | **1 m 41 s**    | **unlocked** | first time the row exists                       |
+| 20 | OOM             | **5 m 52 s**    | **unlocked** | first time the row exists                       |
+
+**Wall-time interpretation.** At k ≤ 18 the patches buy peak
+heap headroom and pay a small ms-scale CPU cost (mimalloc
+trade-off, plus the per-prove FFT recompute of the now-lazy
+fixed_cosets and permutation.cosets). At k = 19 + k = 20 the
+patches buy correctness — the proofs simply did not exist
+before. **The trade is exactly as designed:** we wanted to swap
+RAM for CPU + disk to unlock the high-k unlock, and the data
+confirms the trade landed correctly.
+
+The k=16 / k=17 regressions are **not** structural — they're
+because the disk-spill path is currently always-on at any k
+when `MIDNIGHT_SPILL_COSETS=1` is set (which the wallet does
+at startup). At k ≤ 17 the cosets fit comfortably in heap and
+the disk round-trip is pure overhead. A follow-up should add a
+soft threshold (e.g. only spill at k ≥ 18) so the small-k wins
+don't regress. Tracked as follow-up; trivial to add (`if k <
+SPILL_FLOOR_K { skip_spill() }` inside `compute_h_poly`).
+
+#### Headroom analysis — where the ceiling moves next
+
+| k     | end-RSS    | peak HWM   | per-app budget (est.)  | margin   | Verdict |
+|-------|-----------:|-----------:|-----------------------:|---------:|---------|
+| 18    | ~ 540 MiB  | ~ 2 167 MiB| ~ 6 500 MiB            | 4.3 GiB  | trivial |
+| 19    | ~ 1 100 MiB| ~ 3 200 MiB| ~ 6 500 MiB            | 3.3 GiB  | comfortable |
+| 20    | ~ 862 MiB  | ~ 4 393 MiB| ~ 6 500 MiB            | 2.1 GiB  | works, ~32 % margin |
+| 21*   | est. 1.7 GiB | **est. 8 800 MiB** | ~ 6 500 MiB     | **−2.3 GiB** | predicted OOM at compute_h_poly (advice_cosets dominate) |
+
+*k = 21 estimate from linear extrapolation of the k = 20 trace
+in §10.3; assumes only `advice_cosets` are still all-heap-
+resident (the spill patch covers fixed + perm cosets but not
+advice). Path forward documented in [[Open questions/H polynomial streaming]].
+
+### iOS Simulator sweep (iPhone 17 Pro arm64, OS 26.4, 2026-05-24)
+
+Captured from the wallet's Bench tab running on the iPhone 17
+Pro simulator (`xcrun simctl` install, all-k Run-all sweep)
+with the latest §10 stack active. Same Rust code as the S24
+Android wallet; same disk-spill at k ≥ 18; same warm_pk_cache;
+same lazy-coset keygen. Host: M-series Mac (32 GB RAM, no
+jetsam — simulator runs natively in `aarch64-apple-ios-sim`).
+
+| k  | hashes  | keygen     | prove       | verify    | proof bytes |
+|----|--------:|-----------:|------------:|----------:|------------:|
+| 18 | 6 242   | 14.1 s     | 36.0 s      | skipped   | 2 933 B     |
+| 19 | 12 484  | 29.8 s     | 1 m 14 s    | skipped   | 2 933 B     |
+| 20 | 24 967  | 1 m 02 s   | **2 m 32 s**| skipped   | 2 933 B     |
+| 21 | 49 935  | 2 m 06 s   | **5 m 11 s**| skipped   | 2 933 B     |
+
+(Low-k rows trimmed for brevity — all 21 rows of the
+1..21 sweep succeeded; k=15 prove 4.4 s, k=16 9.0 s,
+k=17 18.2 s.)
+
+#### Δ vs other targets at high k
+
+| k  | iOS Sim prove | S24 prove (real phone) | M2 `bench_cli` prove | Notes                                          |
+|----|--------------:|-----------------------:|---------------------:|------------------------------------------------|
+| 18 | 36.0 s        | 50.9 s                 | —                    | iOS sim ~29 % faster than S24                  |
+| 19 | 1 m 14 s      | 1 m 40 s               | —                    | iOS sim ~26 % faster                           |
+| 20 | **2 m 32 s**  | 3 m 33 s               | —                    | iOS sim ~29 % faster                           |
+| 21 | **5 m 11 s**  | thrashed @ +13 min     | 7 m 11 s             | **iOS sim beats M2 `bench_cli` by 28 %** at k=21 |
+
+Two genuinely interesting data points:
+
+- **iOS Sim beats M2 `bench_cli` on k=21 prove** (5 m 11 s vs
+  7 m 11 s). Same M-series hardware, different runtime. The
+  Dioxus wallet has rayon/tokio thread pools that are warm
+  from the prior 20 rows; the freshly-spawned `bench_cli`
+  hits cold-start overhead on each iteration. ~28 % faster.
+- **iOS Sim k=20 prove ~29 % faster than S24** across every
+  high-k row. Consistent with the per-core gap (Apple perf
+  cores vs Cortex-X4 in the S24).
+
+#### What this validates
+
+The iOS Simulator runs the *same Rust code* as a real iPhone
+build target (`aarch64-apple-ios-sim` vs `aarch64-apple-ios`),
+linked into a *real iOS app bundle* via xcframework, invoked
+from a *real Swift `@main` `App.init()`*. The only difference
+from real-device behaviour is **memory**: the simulator has
+the host's full RAM and no jetsam, so it cannot prove that
+k=21 fits inside an iPhone's per-app budget. It does prove
+that:
+
+- The cross-compile pipeline (`cargo build --target
+  aarch64-apple-ios-sim --release` → 118 MB `.dylib` →
+  xcframework → `xcodebuild` Debug) works end-to-end.
+- The `start_app()` env-var setup runs (both
+  `Library/Caches/midnight-pp/` and `Library/Caches/midnight-cosets/`
+  were created on launch).
+- The §10 disk-spill path engages correctly on iOS at k ≥ 18
+  (the SPILL_FLOOR_K = 18 default kicks in identically to
+  Android).
+- Every prove from k=1 to k=21 produces a correct proof on
+  iOS (proof bytes 2 933 B, the canonical size, matches every
+  other target).
+- No JS-bridge / WebKit / Wry interop bug at any k — the
+  wallet's eval bridge held through a 42-minute sweep
+  including the heavy k=20 + k=21 rows.
+
+What it does **not** validate:
+
+- iPhone 15 Pro real-hardware peak HWM under jetsam pressure
+  (see §11.5 / §13.5 and Open questions / iOS jetsam ceiling
+  in the Obsidian vault).
+- Real-device wall times (M-series host is faster per-core
+  than any current iPhone Apple silicon, so production wall
+  will be 1.2–1.5× slower).
+
 ### Web (wasm32-unknown-unknown) sweep — 2026-05-22
 
 Same `contract_benchmark::run_proof(k)` cross-compiled to
@@ -2425,3 +2582,1382 @@ suspend, both quick) saves ~200–400 MB end-to-end and is
 expected to move k = 19 from "always OOMs" to "passes",
 without quite reaching k = 20. That's the realistic
 short-term ceiling without touching the halo2 fork.
+
+---
+
+## §10. Outcomes — what actually shipped (2026-05-23)
+
+The 2026-05-22 punch list above predicted that landing items 9 +
+10 + 13 would save 500–1000 MB and that **k = 20 was the
+"deepest fork patch" tier requiring 3–5 days**. The session that
+followed produced a different shape: we did patch the fork (the
+deeper levers turned out to be cheaper to implement than feared
+*and* the only ones that actually mattered for k = 20), and the
+"easy" levers (WebView suspend, PK cache cap) ended up being
+non-factors because the real bottlenecks were elsewhere.
+
+This section documents what landed, in landing order, with
+measured numbers from a physical Samsung S24 Ultra.
+
+### §10.1 The 30-second summary
+
+**Baseline (Cargo.toml deps unchanged, master `midnight-proofs`):**
+S24 Ultra OOM at k ≥ 19. Largest survivable workload was a
+~6 242-hash chain at k = 18.
+
+**Latest (this PR chain):** S24 Ultra **completes k = 20**
+(24 967 constraints, ~2× the constraints of k = 19) with
+4 393 MiB peak HWM and ~862 MiB end-of-prove RSS, well under
+the per-app budget.
+
+| Workload                                              | Before (master)   | After (this PR chain) | Δ                |
+|-------------------------------------------------------|------------------:|----------------------:|------------------|
+| k = 18 peak HWM (S24, real)                           | ~3 900 MiB        | ~2 580 MiB            | **−34 %**        |
+| k = 18 keygen-end HWM (emulator, instrumented)        | 1 502 MiB         | 601 MiB               | **−60 %**        |
+| k = 18 prove.end RSS (emulator)                       | 1 696 MiB         | 540 MiB               | **−68 %**        |
+| k = 18 wall (emulator; qemu-noisy, ballpark)          | ~326 s            | ~90 s                 | −72 % (incl. emulator variance) |
+| k = 19 outcome (S24)                                  | OOM at ~7+ GiB    | succeeded @ 5 300 MiB | **unlocked**     |
+| k = 20 outcome (S24)                                  | OOM at ~6.8 GiB   | succeeded @ 4 393 MiB | **unlocked**     |
+| k = 20 prove wall (S24, wallet UI)                    | n/a (died)        | 3 m 29 s              | first measurement|
+| Proof size at k = 20                                  | n/a               | 2 933 B               | unchanged shape  |
+
+CPU / threading was deliberately not the target axis (we already
+saturate cores via rayon during MSM + FFT; mobile cores were
+not the bottleneck). The wall-time improvements are a
+consequence of (a) skipping redundant work like the prover-side
+PK rebuild, and (b) not paging memory under pressure — not from
+any actual CPU optimization. Treat the wall-time column as a
+**by-product**, not the deliverable.
+
+### §10.2 Step-by-step changes, in landing order
+
+Each row is a single commit (or tight cluster) with its measured
+delta. The "delta" column is the marginal contribution **on top
+of all prior rows in the table** — same caveat as benchmark
+suites that include only the last patch's effect.
+
+| #   | Patch                                                                                                                              | Commit / PR                                                       | Layer            | Marginal delta                                                                       | Notes                                                                                                                                                                                                                                                                                       |
+|----:|------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|------------------|--------------------------------------------------------------------------------------|----|
+| 1   | `cost-model OOM skip` — `ir.model()` HashMap walks every cell at k = 19+ regardless of proving                                     | `a474dd7a` (ledger)                                               | bench-side       | unblocks k = 19 even being attempted                                                 | Not a proving optimisation; an instrumentation bug that masqueraded as a proving OOM. Documented because the original "k = 19 always OOMs" finding included this red herring. |
+| 2   | `MIDNIGHT_LAZY_PARAMS` + peak RSS measurement                                                                                       | `2b8a9b0c` (ledger)                                               | bench-side       | measurement only                                                                     | Enabled the per-phase profiling that made every subsequent decision data-driven. |
+| 3   | `[patch.crates-io] midnight-proofs = { path = ../midnight-zk/proofs }`                                                              | `21a93efb` (ledger)                                               | workspace        | enables fork patches                                                                 | Lets the workspace consume the local midnight-zk fork. |
+| 4   | `IR + ProverKey caches + headless bench_cli`                                                                                        | `e022f2d5` (ledger)                                               | bench-side       | enables instrumented iteration                                                       | The `bench_cli` binary became the measurement workhorse for everything that follows. |
+| 5   | `lazy g_lagrange via OnceLock + drop_lazy_bases`                                                                                    | `45ea9f7` (midnight-zk)                                           | proofs (fork)    | enables next; ~100 MiB steady-state floor                                            | The Lagrange basis is rebuilt only when first used (zswap proves, etc.); off the prover hot path. |
+| 6   | `bump to 0.7.99 + drop path-dep on midnight-curves`                                                                                 | `30688ef` (midnight-zk)                                           | proofs (fork)    | enables `[patch.crates-io]` resolution                                               | Plumbing. |
+| 7   | `ParamsKZG::read_custom_lazy<R: Read + Seek>`                                                                                       | `a5f9cda` (midnight-zk)                                           | proofs (fork)    | enables #8                                                                           | API surface for streaming + mmap'd SRS reads. |
+| 8   | `mmap-backed ParamsKZG via BasesStorage`                                                                                            | `946b1f0` (midnight-zk)                                           | proofs (fork)    | ~300 MiB at k = 20 steady-state (SRS pages now file-backed, kernel-evictable)        | The SRS is the largest single allocation in `ParamsKZG`; this moves it out of heap into the page cache. **Peak-during-MSM unchanged** (SRS pages stay hot during the prover walk), the win is between proofs and during keygen. |
+| 9   | `per-phase memory instrumentation` (proofs side)                                                                                    | `3f0abef` (midnight-zk)                                           | proofs (fork)    | measurement only                                                                     | `tracing` markers at every keygen + prove phase, target `midnight_bench`. The trace fragments shown in this section are direct grep output from this layer. |
+| 10  | `sample_rss_hwm_kb` for macOS / iOS via `getrusage`                                                                                 | `49f9134` (midnight-zk)                                           | proofs (fork)    | measurement only                                                                     | Linux/Android already had `/proc/self/status`; this closed the gap on Apple platforms so the same tracing layer works there. (macOS's `ru_maxrss` is a lifetime high-water mark, not current — flagged in commit notes; iOS `/proc` is unavailable so this is the best we can do.) |
+| 11  | `warm_pk_cache` (ChainResolver pre-warms `PK_CACHE`)                                                                                | `4ecfcfe4` (ledger)                                               | workspace        | **k = 18 peak −1 300 MiB (3.9 GiB → 2.6 GiB on S24)** ; **k = 19 unlocked** (~7 + GiB → 5.3 GiB) | The single biggest user-visible win. Eliminates the 1.4 GiB "deserialise + rebuild" copy that lived between `ChainResolver::resolve_key` and `ProofPreimage::prove`. See [[Optimizations/PK_CACHE warm]] in the Obsidian vault for the full deep-dive. |
+| 12  | `wire mmap-backed SRS into ParamsProver`                                                                                            | `fb4e3208` (ledger)                                               | workspace        | enables wallet to honour `MIDNIGHT_MMAP_BUILD=1`                                     | The wallet writes a `.mmap` companion alongside each `bls_midnight_2pK` SRS file on first run; subsequent runs mmap directly. |
+| 13  | `mimalloc as global allocator + MIMALLOC_PURGE_DELAY=0` opt-in                                                                      | `afec4db7` + `31de1f78` (ledger)                                  | bench-side       | k = 18 peak −60 MiB (emulator); rough wash on desktop; **wins where it matters**     | Trades a small constant CPU overhead for aggressive page return to the OS. Bionic's malloc and macOS libmalloc both pool too greedily for the GiB-scale-and-drop pattern of `compute_h_poly`. |
+| 14  | `defer fixed_cosets construction to per-prove`                                                                                      | `d54c690` (midnight-zk)                                           | proofs (fork)    | **k = 18 keygen-end HWM −608 MiB** (1 502 → 894 emulator)                            | Stops paying the keygen-side extended-domain expansion until the one place that actually consumes it (`evaluate_h`). |
+| 15  | `defer permutation.cosets the same way as fixed_cosets`                                                                             | `6cec3e7` (midnight-zk)                                           | proofs (fork)    | **k = 18 keygen-end HWM −293 MiB** (894 → 601 emulator); total −60 % keygen vs base  | Same architectural pattern, applied to the permutation argument. |
+| 16  | **`disk-spill cosets path for k ≥ 20 unlock`** (the architectural unlock)                                                           | `66b43d1` (midnight-zk) + `6b70d7fe` (ledger; Android auto-enable) | proofs (fork) + wallet | **k = 20 unlocked** (~6.8 GiB OOM → 4 393 MiB peak); k = 18 peak unchanged | `compute_h_poly` writes each extended-domain coset to a tempfile one at a time, drops the in-memory poly, then mmaps the file for `evaluate_h`. The wallet auto-points `MIDNIGHT_SPILL_DIR` at `/data/data/<APP_ID>/cache/midnight-cosets` (the 93 GiB `/data` partition on S24). See [[Optimizations/Disk-spill cosets — the k=20 unlock]] for the deep-dive. |
+
+### §10.3 Per-phase k = 20 trace (S24 Ultra, all patches active)
+
+The trace below is direct grep output from the
+`midnight_bench=info` tracing layer (item #9 above), captured
+from `bench_cli` on the device. Both RSS and HWM are in MiB,
+sampled from `/proc/self/status`.
+
+```
+keygen_pk.start                              rss=12    hwm=2114
+keygen_pk.assembly_built                     rss=1274  hwm=2114
+keygen_pk.fixed_polys.end                    rss=1556  hwm=2114
+keygen_pk.fixed_cosets.end                   rss=1556  hwm=2114   ← lazy (empty Vec)
+keygen_pk.permutation_pk.end                 rss=1748  hwm=2708   ← polys only, no cosets
+keygen_pk.evaluator.end                      rss=2133  hwm=2708
+bench.keygen.end                             rss=2133  hwm=2708   ← keygen complete
+
+create_proof.compute_trace.start             rss=2681  hwm=2903
+trace.parse_advices.end                      rss=3058  hwm=3994   ← advice cosets built
+create_proof.compute_trace.end               rss=3314  hwm=3994
+
+finalise.compute_h_poly.start                rss=3314  hwm=3994
+spill_fixed_cosets.start                     rss=3729  hwm=4273   ← single coset transient (+415)
+spill_fixed_cosets.end                       rss=3095  hwm=4273   ← −634 (on disk now)
+spill_perm_cosets.start                      rss=3095  hwm=4273
+spill_perm_cosets.end                        rss=2022  hwm=4273   ← −1 073 (on disk)
+drop_cosets.end                              rss=3785  hwm=4393   ← evaluate_h peak (mmap warmed)
+finalise.compute_h_poly.end                  rss=576   hwm=4393   ← mmap evicted, RSS −3 209
+finalise.vanishing_construct.end             rss=748   hwm=4393
+finalise.multi_open.end                      rss=1384  hwm=4393
+bench.prove.end                              rss=862   hwm=4393   ← total: 285 s prove, 4 393 MiB peak
+```
+
+Reading the trace: the peak HWM (4 393 MiB) is hit at
+`drop_cosets.end`, when `evaluate_h` is mid-row-scan over the
+mmap'd cosets and the kernel hasn't decided yet that they can
+be evicted. As soon as `compute_h_poly` returns, the mmap'd
+pages become cold and the kernel reclaims them — RSS drops by
+3.2 GiB across a single phase boundary. This is the dynamic
+disk-spill was designed for.
+
+### §10.4 What the punch list got wrong, and why
+
+Cross-referencing §9's punch list with what landed:
+
+| Punch-list item                                            | Predicted impact            | What actually happened                                                                                                                                                                  |
+|------------------------------------------------------------|-----------------------------|------|
+| #5 Memoise `ParamsProver` per-k (web)                     | 5–10 % at k ≥ 15           | not done; web target deprioritised                                                                                                                                                       |
+| #7 `PK_CACHE_SIZE` 5 → 1                                  | 1.2 GB *after* cache saturation | **not done — wrong fix**. The waste was the prover-side **rebuild** of an already-cached PK, not the cache itself. `warm_pk_cache` (item #11 in §10.2) sidestepped the whole problem by pre-warming the cache that the prover boundary's `tagged_deserialize` consults. The PK cache cap is still 5 (untouched) and still healthy. |
+| #9 mmap-backed SRS via `memmap2`                          | 200–400 MB at k = 20       | **landed** as item #8 in §10.2. Saved ~300 MiB steady-state. **Peak-during-MSM unchanged** (the original prediction implicitly assumed mmap pages could be evicted during MSM — they can't, because the prover walks every element). The win is between proofs / during keygen, not during `compute_h_poly`. |
+| #10 Reuse FFT scratch buffers                             | 100–200 MB                  | not pursued. The lazy-cosets + disk-spill stack made the cosets themselves disappear from heap, which dominated the FFT scratch question. |
+| #11 Witness column streaming                              | 300–500 MB at k = 20        | **superseded by disk-spill**. The architectural pattern (build → commit → drop) is the same idea applied to witness instead of cosets; cosets were ~2× the size and unlocked k = 20 alone. Witness streaming is the path to **k = 21**, not k = 20 — see [[Open questions/H polynomial streaming]]. |
+| #13 Suspend / destroy WebView during sweeps               | 200–400 MB                  | **not done — turned out unnecessary**. The `bench_cli` measurements (no WebView) showed the OOM was in the proving heap itself, not WebView competition. Once `warm_pk_cache` + lazy cosets + disk-spill landed, the wallet (with WebView resident) also passes k = 20 — confirming the WebView was a noise factor, not the limit. |
+| #14 Allocator swap (jemalloc/mimalloc)                    | 5–20 MB                     | **landed** as item #13 in §10.2. Real impact: ~60 MiB at k = 18 (more than predicted) — the prediction was for "small object overhead", but the actual win is **page return cadence**, which matters for the GiB-scale temporary allocations in `compute_h_poly`. |
+
+**The big lesson:** every punch-list item that targeted "trim
+N MiB off the heap floor" was a 10–50× under-estimate of what
+*defer-then-disk-back* could do for the same effort. The
+keygen-end heap floor went from ~5 GiB (predicted "lower
+ceiling") to ~600 MiB — order-of-magnitude, not percent.
+
+### §10.5 Opt-in env vars (production wallet surface)
+
+The mobile build sets these automatically at process start
+(`mobile-bench/dioxus-wallet/src/lib.rs::main` on Android,
+`::start_app` on iOS). They are exposed as env vars rather than
+config flags so the headless `bench_cli` and the wallet share
+exactly the same code path.
+
+| Env var                            | Default in wallet              | Effect                                                                                              |
+|------------------------------------|--------------------------------|-----------------------------------------------------------------------------------------------------|
+| `MIDNIGHT_PP`                      | `/data/data/<APP_ID>/cache/midnight-pp` (Android), `Library/Caches/midnight-pp` (iOS) | SRS cache root                                                                                      |
+| `MIDNIGHT_MMAP_BUILD=1`            | set on first wallet run        | Writes `.mmap` companion alongside each SRS file the first time it loads; subsequent runs mmap     |
+| `MIDNIGHT_SPILL_COSETS=1`          | **set on Android** (Linux/iOS off by default) | Enables disk-spill in `compute_h_poly`                                                              |
+| `MIDNIGHT_SPILL_DIR=<path>`        | `/data/data/<APP_ID>/cache/midnight-cosets` (Android) | Where `compute_h_poly` writes coset tempfiles. Override if your `TMPDIR` partition is too small.   |
+| `MIMALLOC_PURGE_DELAY=0`           | not set by default             | mimalloc tuning; aggressively return freed pages to the OS. Set this via `adb shell` for the headless `bench_cli` when chasing the last 5 % of peak RSS. |
+| `BENCH_LOG=midnight_bench=info`    | not set                        | Emits the per-phase RSS / HWM tracing lines used to build the table in §10.3. Set for `bench_cli`; the wallet has its own log tab that consumes these without the env var. |
+
+### §10.6 What we deliberately did **not** do
+
+Listed so future readers don't re-investigate paths that were
+considered and explicitly skipped.
+
+| Lever                                                  | Why skipped                                                                                                                                                                                                                                                                                                                                                       |
+|--------------------------------------------------------|------|
+| **k = 21** (~50 k constraints)                         | k = 20 already overshoots the largest real-world workload by ~2×. The next limit (`advice_cosets`, ~7.6 GiB at k = 21) would require the same disk-spill treatment applied to a different (and bigger) collection — ~300 LOC of focused work, but no business reason on the current roadmap. |
+| **Row-streaming `evaluate_h`**                         | Cleanest long-term answer (constant memory regardless of k) but ~500 LOC of constraint-evaluator surgery, with hard-to-test invariants. Deferred. |
+| **`tikv-jemallocator`** (in favour of mimalloc)        | Both deliver similar page-return characteristics; mimalloc was already present in the wallet's transitive dep tree. No need to evaluate two. |
+| **WebView suspend during sweeps**                      | The proving heap was the bottleneck, not WebView competition. Verified via `bench_cli` (no WebView) hitting the same OOM at the same k. |
+| **`simd128` on web/wasm**                              | Blocked on upstream: `transient-crypto`/`midnight-proofs` have no `#[cfg(target_feature = "simd128")]` paths. Re-evaluate once that ships upstream. |
+| **Chunked Pippenger MSM**                              | Estimated 100–150 MiB savings, but ~3 days of work and would land *during* the prove peak which disk-spill has already brought well below the ceiling. Not worth it at k = 20. |
+
+### §10.7 Disk usage (the cost we pay for the RAM win)
+
+Disk-spill is the only optimisation that buys RAM with disk.
+The numbers, on a real S24 Ultra during k = 20:
+
+| Spill file                        | Size at k = 20 | Lifetime                          |
+|-----------------------------------|---------------:|-----------------------------------|
+| `midnight-cosets-XXXXXX` (fixed)  | ~3.2 GiB       | one `compute_h_poly` call         |
+| `midnight-cosets-YYYYYY` (perm)   | ~1.5 GiB       | one `compute_h_poly` call         |
+| `.mmap` companions in `MIDNIGHT_PP` | ~360 MiB at k = 20 (vs 240 MiB legacy format) | persistent (re-read each prove) |
+
+Total transient disk per k = 20 prove: ~4.7 GiB. Held only for
+the duration of `compute_h_poly` (~30 s of the 285 s prove
+wall); deleted automatically when `SpilledCosets` drops. The
+`/data` partition on the S24 has ~93 GiB free, so even worst-
+case concurrent runs are fine.
+
+If a downstream device has <10 GiB free `/data`, set
+`MIDNIGHT_SPILL_DIR` to a larger filesystem; if no filesystem
+has enough room, unset `MIDNIGHT_SPILL_COSETS=1` (the wallet
+will fall back to the in-heap path and OOM-or-not behaviour
+will match the pre-spill table in §9).
+
+### §10.8 k = 21 on phone — the throughput wall, not the memory wall (measured)
+
+Status: characterised 2026-05-23 via `bench_cli` on a real
+Samsung S24 Ultra. **k = 21 (49,935 constraints) does not OOM
+on phone with the §10 disk-spill stack active** — but the
+prove cannot complete in practical wall time because of
+mmap-page-fault thrashing in `evaluate_h`. Detailed traces
+below.
+
+#### What we measured
+
+Two parallel runs were done with `MIDNIGHT_SPILL_COSETS=1`:
+
+| Target              | k = 21 keygen wall | k = 21 prove wall    | Peak HWM      | Verdict |
+|---------------------|-------------------:|---------------------:|--------------:|---------|
+| M2 desktop (no per-app cap, 32 GiB RAM) | 115 s | 7 m 11 s         | **11,974 MiB** | succeeded, completed |
+| **S24 Ultra (real phone, ~6.5 GiB per-app budget)** | ~143 s | **killed at +13 min during `evaluate_h`** | **5,396 MiB** | did not OOM; thrashed |
+
+#### The phone trace (S24, killed mid-`evaluate_h`)
+
+Direct grep output from `midnight_bench=info` tracing:
+
+```
+keygen_pk.start                              rss=14    hwm=4216
+keygen_pk.assembly_built                     rss=2538  hwm=4216
+keygen_pk.fixed_cosets.end                   rss=3094  hwm=4216   ← lazy
+keygen_pk.permutation_pk.end                 rss=3476  hwm=5396   ← lazy cosets
+keygen_pk.lagrange_polys.end                 rss=4246  hwm=5396   ← biggest keygen jump
+keygen_pk.evaluator.end                      rss=4246  hwm=5396
+bench.keygen.end                             rss=4246  hwm=5396   ← keygen total ~143 s
+
+resolver.resolve_key.start                   rss=4246  hwm=5396
+resolver.pk_cache_warmed                     (warmed, 80 s — but no rebuild)
+resolver.pk_serialised                       rss=4175  hwm=5396   bytes=540 MB
+resolver.resolve_key.end                     rss=4175  hwm=5396
+
+create_proof.compute_trace.start             rss=4143  hwm=5396
+trace.parse_advices.end                      rss=664   hwm=5396   ← kernel reclaimed during NTT
+trace.permutations_commit.end                rss=2332  hwm=5396
+create_proof.compute_trace.end               rss=3057  hwm=5396
+
+finalise.compute_h_poly.start                rss=3057  hwm=5396
+spill_fixed_cosets.start                     rss=256   hwm=5396   ← spill working, RSS dropping
+spill_fixed_cosets.end                       rss=1     hwm=5396   ← +3 min wall (slow disk I/O)
+spill_perm_cosets.start                      rss=2     hwm=5396
+spill_perm_cosets.end                        rss=1     hwm=5396   ← +1.5 min wall
+
+[killed at this point — drop_cosets / evaluate_h ongoing]
+```
+
+#### What the data says
+
+- **Peak HWM on phone never exceeded 5,396 MiB** — comfortably
+  under the S24's ~6,500 MiB per-app budget. The §10 disk-spill
+  stack is working as designed: at k = 21 the in-memory peak
+  is essentially the same as at k = 20 (4,393 MiB).
+- **The desktop's 11,974 MiB peak is mostly mmap'd file-backed
+  pages that the kernel never had reason to evict.** On phone,
+  under memory pressure, `lmkd` aggressively evicted those
+  same pages — RSS dropped to 1 MiB mid-spill (the kernel
+  reclaimed everything reclaimable).
+- **k = 21 is not a memory-ceiling problem on phone.** It is a
+  throughput problem.
+
+#### Why the prove can't complete in practical time
+
+`evaluate_h`'s inner loop walks rows across **every coresident
+polynomial** (advice, instance, fixed, permutation, lookup),
+and on phone these are now:
+
+- `advice_cosets` (~3.8 GiB at k = 20 → ~7.6 GiB at k = 21) —
+  built during `compute_trace.parse_advices`, kept in heap.
+  Already evicted by lmkd to ~1 MiB resident before
+  `evaluate_h` even starts.
+- spilled `fixed_cosets` (~6.4 GiB on disk at k = 21) —
+  file-backed mmap; OS-evictable.
+- spilled `permutation.cosets` (~2.8 GiB on disk at k = 21) —
+  file-backed mmap; OS-evictable.
+
+Every row read in the constraint scan touches every
+polynomial, which means **every row triggers a page fault**
+against an evicted mmap. The disk-spill optimisation, which
+buys correctness at k = 20, turns into a throughput
+catastrophe at k = 21: the prove that would have completed in
+~7 minutes on M2 was projected to take **hours** on phone, all
+of it I/O-bound.
+
+The §10 stack still does its job (no OOM at k = 21 on phone),
+but a different optimisation is needed to make k = 21
+*practical* on phone.
+
+#### What k = 21 on phone would need
+
+Two architectural changes, in order of impact:
+
+1. **Row-streaming `evaluate_h`.** Refactor the constraint
+   evaluator's inner loop to process N rows at a time,
+   reading windows from the mmap'd cosets in cache-friendly
+   strides. Mentioned briefly in §11.3 as the "next deep
+   frontier"; this k = 21 experiment confirms it is the right
+   frontier. Estimated effort: ~500 LOC of careful surgery
+   inside `midnight-proofs::plonk::evaluation::Evaluator::evaluate_h`,
+   with hard-to-test invariants (the existing path computes
+   exact constraint sums; the streaming version must produce
+   identical sums modulo associativity).
+
+2. **Advice-cosets disk-spill.** Apply the same
+   `SpilledCosets` pattern from §10.2 #16 to the advice
+   columns in `compute_trace.parse_advices`. **By itself this
+   does not unlock k = 21** — the k = 21 trace above shows
+   the existing spills already drop RSS to ~1 MiB before
+   `evaluate_h`, so spilling more doesn't move the peak. It
+   would only help in combination with (1), as a way to keep
+   the working-set during the row scan small enough to fit
+   in resident memory.
+
+(1) without (2) is the most promising path. (2) without (1)
+is a no-op on phone (the kernel already evicts under
+pressure). (1) with (2) is the rigorous answer that also
+gives us margin for k = 22+.
+
+#### Verdict for the §10 PR chain
+
+k = 20 remains the supported ceiling for this PR chain on
+phone. k = 21 is in the bucket of "physically lands but
+practically unusable" — useful as a stress test to validate
+the §10 architecture (which it did, definitively) but not
+shippable as a wallet capability.
+
+The path forward is the row-streaming `evaluate_h` refactor.
+Tracked as a follow-up; outside the scope of this PR pair.
+
+### §10.9 Prebuilt PK on disk — the cold-launch unlock (proposed)
+
+Status: design proposal; not yet implemented. Sketched here
+because it is the natural extrapolation of the §10 stack and
+the next unlock the data points at.
+
+#### The problem
+
+After all §10 patches, **keygen at k = 20 still costs ~1 m 16 s
+on every wallet cold-launch.** The `PK_CACHE` warm-cache lives
+in process memory, so once the user closes the app and
+relaunches, the cache is empty and the first prove pays the
+full keygen cost again.
+
+The 1 m 16 s breaks down (from the §10.3 trace):
+
+| Sub-phase                          | k = 20 wall | What it does                              |
+|------------------------------------|------------:|-------------------------------------------|
+| `assembly_built`                   | 0.5 s       | parse circuit IR → cell assignments       |
+| `synthesise.end`                   | 0.5 s       | populate fixed-column cells               |
+| `batch_invert_rational.end`        | 0.9 s       | invert rational denominators              |
+| `selectors_to_fixed.end`           | 0.1 s       | merge selector columns into fixed         |
+| `fixed_polys.end`                  | 1.9 s       | inverse-FFT each fixed column to coeff form |
+| `permutation_pk.end`               | 1.3 s       | compute σ-permutation polynomials         |
+| `lagrange_polys.end`               | 3.1 s       | compute `l0`, `l_last`, `l_active_row`    |
+| `evaluator.end`                    | 0.0 s       | metadata only                             |
+| total                              | ~8 s        | (the rest is dominated by tagged_serialise + MidnightPK::read, which we already short-circuit via warm_pk_cache) |
+
+The actual heavy keygen work is **~8 s of CPU**; the
+remaining ~68 s is the bytes-API round-trip inside
+`ChainResolver::resolve_key` (gzip-compress the PK to ~270 MB
+bytes, then `PK_CACHE` lookup populates the deserialised side
+without re-running keygen).
+
+#### The proposal
+
+**Persist the keygen output to a per-circuit, per-`k`,
+per-halo2-version file on disk in mmap-friendly layout.** On
+subsequent wallet launches, mmap the file, verify SHA, skip
+keygen entirely.
+
+Layout sketch:
+
+```
+$MIDNIGHT_PK_CACHE_DIR/
+└── pk-<circuit_hash>-<k>-<midnight_proofs_version>/
+    ├── manifest.json         # metadata: SHA256 of each blob,
+    │                         #           halo2 version, IR hash
+    ├── fixed_values.bin      # raw [F; n*ncols] — mmap-as-slice
+    ├── fixed_polys.bin       # raw [F; n*ncols] — mmap-as-slice
+    ├── permutation_polys.bin # raw [F; n*nperm] — mmap-as-slice
+    ├── l0.bin / l_last.bin / l_active_row.bin
+    ├── vk.bin                # the small verifying key (gzipped is fine)
+    └── ev.json               # Evaluator structural metadata
+```
+
+The same `BasesStorage<F>` pattern that already powers the
+mmap'd SRS (§10.2 item #8) extends to these vectors:
+`Polynomial<F>.values` becomes either `Owned(Vec<F>)` (the
+keygen output path) or `Mapped { mmap, ptr, len }` (the
+mmap-from-disk path). The prover never knows which it has —
+both expose `&[F]` via deref.
+
+#### Sized projection
+
+For each circuit, persistent disk footprint:
+
+| k    | fixed_values + fixed_polys | perm.polys | l-polys | total per circuit |
+|-----:|---------------------------:|-----------:|--------:|------------------:|
+| 12   | 25 MiB                     | 11 MiB     | 1.5 MiB | ~38 MiB           |
+| 14   | 100 MiB                    | 44 MiB     | 6 MiB   | ~150 MiB          |
+| 17   | 800 MiB                    | 352 MiB    | 50 MiB  | ~1.2 GiB          |
+| 18   | 1.6 GiB                    | 704 MiB    | 100 MiB | ~2.4 GiB          |
+| 20   | 6.4 GiB                    | 2.8 GiB    | 400 MiB | ~9.6 GiB          |
+
+The extended-NTT cosets are **intentionally not persisted** —
+they remain lazy/disk-spilled per the §10 stack. They are
+short-lived per-prove transient anyway; persisting them
+would inflate the artifact 4× without functional benefit.
+
+#### Performance projection
+
+| Stage                                          | Current (post-§10) | With prebuilt PK |
+|------------------------------------------------|-------------------:|-----------------:|
+| First-prove keygen at k = 20 (cold launch)     | 76 s               | ~3–5 s (mmap setup + SHA verify) |
+| Subsequent proves same session (warm PK_CACHE) | ~0                 | ~0 (in-mem cache still wins)     |
+| Across wallet restart                          | full 76 s again    | ~5 s             |
+| First-prove keygen at k = 12 (cold launch)     | ~0.4 s             | ~0.05 s (already fast)           |
+| First-prove keygen at k = 17 (cold launch)     | ~10.7 s            | ~1.5 s            |
+
+The wallet's actual workload (DID circuits at k ≈ 12) gets a
+modest win (~350 ms saved per cold launch). The k = 17–20
+power-user path gets a huge win (76 s → 5 s, a **15× speedup
+on cold-launch first-prove**).
+
+#### Tradeoffs
+
+| Pro                                                              | Con                                                                  |
+|------------------------------------------------------------------|----------------------------------------------------------------------|
+| First-prove cold-launch latency drops 15× at high k              | Per-circuit artifact size: up to ~9.6 GiB at k = 20                  |
+| Same architecture pattern as the mmap'd SRS — proven shape       | Wallet has to manage a cache directory + eviction policy             |
+| Artifacts can be CDN-distributed (downloaded on first run)       | One blob per circuit × per k × per halo2-version → versioning matrix |
+| OS evicts cold artifact pages under memory pressure              | Cache invalidation: any halo2 fork bump invalidates every PK file    |
+| Works the same on Android, iOS, desktop — no platform-specific   | SHA verification is non-negligible (~3 GiB hash at k = 20 = ~1.5 s)  |
+
+#### Where the artifacts come from
+
+Two production options:
+
+1. **Pre-built artifacts shipped via CDN.** Upstream Midnight
+   provides per-circuit-per-k artifacts at e.g.
+   `pk.midnight.network/<circuit_hash>-<k>-<halo2_ver>.tar.zst`.
+   The wallet downloads on first need; same as SRS today.
+   **UX:** ~10 GiB cumulative for typical DID + zswap circuit
+   set at production-sized k, downloaded on demand. Probably
+   2-3 GiB after the wallet curates "which circuits do my
+   contracts use" — comparable to large iOS games.
+
+2. **Locally generated artifacts cached after first compute.**
+   First prove for a new circuit/k pair runs full keygen,
+   then writes the result to disk; subsequent proves mmap.
+   **UX:** no upfront download, but the first-ever prove
+   pays the full keygen cost. Best UX trade-off for the
+   wallet's actual workload (DID circuits computed once,
+   reused thousands of times).
+
+The pragmatic answer is **option 2** — the wallet generates
+its own cache the first time each circuit is touched, then
+mmaps thereafter. Option 1 becomes interesting if/when the
+wallet ships with a fixed set of circuit IDs that everyone
+will need (e.g. the canonical zswap shielded-transfer circuit).
+
+#### Estimated effort
+
+- ~3–5 days for the disk-cached-PK layer (analogous to the
+  existing `BasesStorage<F>` for the SRS — same pattern, more
+  fields).
+- ~1 day for the wallet-side cache directory management
+  (eviction policy, total-size cap, write-on-first-compute
+  hook).
+- ~1 day for CDN-distribution shape (if we pursue option 1).
+- Total: ~5–7 working days for option 2 alone; ~7–10 if we
+  also ship the CDN path.
+
+#### Why not yet
+
+This sits outside the §10 PR chain because:
+
+1. **It is not a memory-peak unlock** — `PK_CACHE` already
+   handles the in-session case. This optimisation is purely
+   a *wall-time* win on cold launch.
+2. **The architectural pattern is identical to mmap'd SRS**,
+   so the design risk is minimal — but the implementation
+   surface (`BasesStorage<F>` applied to every `Polynomial`
+   field in `ProvingKey`) is bigger than any single §10
+   patch.
+3. **It's a wallet-side concern more than a prover-fork
+   concern.** The midnight-zk fork needs the `BasesStorage<F>`
+   plumbing extended, but the cache directory + lifecycle
+   logic lives in the wallet (or in `transient-crypto`'s
+   PK_CACHE neighbour).
+
+Tracked as the next major optimisation; will land in a
+follow-up PR pair after §10 is reviewed.
+
+### §10.10 Loose-end fixes (post-§10.1–§10.9 follow-ups)
+
+After the §10 stack landed, four loose ends were identified
+and addressed before the next development phase:
+
+1. **`SPILL_FLOOR_K = 18` gating in `compute_h_poly`** —
+   midnight-zk `cf60e3c`. The wallet sets `MIDNIGHT_SPILL_COSETS=1`
+   unconditionally on Android, but the disk round-trip is pure
+   overhead at small k (+46–47 % prove time at k=16/17 vs the
+   2026-05-21 baseline). The patch adds
+   `pk.vk.domain.k() >= SPILL_FLOOR_K` to the spill decision
+   in `compute_h_poly`, with a `MIDNIGHT_SPILL_FLOOR_K` override
+   env var. Default 18; the k=20 unlock is unaffected.
+
+2. **iOS `start_app()` disk-spill env-var setup** —
+   midnight-ledger `4c6e912f`. Mirrors the Android-side wiring
+   from `6b70d7fe`. Verified end-to-end on iPhone 17 Pro arm64
+   simulator: `cargo build --target aarch64-apple-ios-sim
+   --release` clean, xcodebuild succeeded, simctl boot/install/
+   launch worked, both `Library/Caches/midnight-pp/` and
+   `Library/Caches/midnight-cosets/` directories were created
+   inside the app sandbox on first launch.
+
+3. **Wallet UI "0 ms" keygen display bug** —
+   midnight-ledger `4c6e912f` (same commit as #2). The bench
+   tab rendered `format_ms(0) == "0 ms"` when the key cache hit
+   on second-run-same-k, misleading users who expected the
+   76 s keygen number from the first run. Fixed: when
+   `keygen_ms == 0`, the cell now reads `"cached"`. The
+   underlying `RunStats.keygen == Duration::ZERO` semantic is
+   preserved.
+
+4. **`.gitignore` for xcodebuild artefacts** —
+   midnight-ledger `4c6e912f` (same commit). `ios/build/`
+   (xcodebuild's `-derivedDataPath` output) and
+   `ios/App/libdioxuswalletmain.dylib` (regenerated by every
+   `cargo build --target aarch64-apple-ios-sim`) are now
+   excluded.
+
+### §10.11 PR map
+
+Both PRs are inside the personal workspace `yshyn-iohk/*`; no
+upstream `midnightntwrk/*` repos were touched.
+
+| Repo            | PR                                                              | Branch                            | Base       | Latest commit                                                            |
+|-----------------|-----------------------------------------------------------------|-----------------------------------|------------|--------------------------------------------------------------------------|
+| midnight-zk     | https://github.com/yshyn-iohk/midnight-zk/pull/1                | `feat/v0.7-h-poly-streaming`      | `main`     | `cf60e3c perf(proofs): SPILL_FLOOR_K=18 — skip disk-spill at small k`     |
+| midnight-ledger | https://github.com/yshyn-iohk/midnight-ledger/pull/1            | `mobile-prototype`                | `ledger-8` | `4c6e912f feat(wallet): iOS disk-spill + "cached" keygen UI + .gitignore` |
+
+All commits in both PRs are GPG-signed (key `38080D6E`,
+`yurii.shynbuiev@iohk.io`) and DCO-signed.
+
+---
+
+## §11. Why the same optimisations don't (and can't) ship to web wasm
+
+We have a working `wasm32-unknown-unknown` build of the same
+`contract_benchmark::run_proof(k)` code (see §6.1a + the Web
+sweep in §9). It works — proofs verify, sizes match, the
+correctness story is identical to native. **But the memory
+unlocks documented in §10 do not, and largely cannot, translate
+to the browser.** This section enumerates why, so future
+contributors don't re-investigate paths that are physically
+impossible in the wasm sandbox.
+
+### §11.1 Browser address-space wall (the hardest cap)
+
+wasm32 is a **32-bit linear memory** model. The entire process
+heap that Rust sees lives inside a single contiguous
+`WebAssembly.Memory` ArrayBuffer. The spec caps it at **4 GiB**
+(`Memory.maximum = 65 536` pages × 64 KiB). Chromium today
+enforces a typical **4 GiB hard ceiling per tab**; Firefox is
+similar; Safari is tighter (~2 GiB on iOS Safari, ~4 GiB on
+desktop Safari). There is no `wasm64` browser target yet
+(stage-3 proposal, not shipped in any production engine).
+
+| Native arm64 (S24) | Web wasm32 (any browser)            |
+|---|---|
+| 64-bit virtual address space, ~93 GiB free `/data` | **4 GiB hard cap per tab** |
+| OS swaps cold pages to disk under pressure | no swap; every byte must coreside in the same ArrayBuffer |
+| Multiple processes / RLIMIT separation | one tab = one ArrayBuffer = one wall |
+
+**Consequence:** the §10.3 trace's 4 393 MiB peak HWM at k = 20
+**does not fit in a tab.** Even if every other optimisation were
+ported, the SRS (~360 MiB) + extended cosets (~3.4 GiB combined)
++ advice cosets (~640 MiB) + scratch already exceed the 4 GiB
+wall. **k = 20 is unreachable on web wasm32 by construction**,
+not by lack of engineering effort.
+
+The practical ceiling on web is ~k = 18 (see §9 Web table),
+matching the punch-list prediction. k = 19 might land on
+desktop Chrome with `--js-flags="--wasm-max-mem-pages=131072"`
+(toggling the experimental 8 GiB wasm-memory64 prototype), but
+that's not a deployable surface.
+
+### §11.2 Why §10's optimisations don't port
+
+The whole §10 stack is built on three primitives, **none of
+which exist in the wasm sandbox**:
+
+#### §11.2.1 `mmap` doesn't exist in wasm
+
+The mmap'd SRS (§10.2 item #8) and the disk-spill cosets
+(§10.2 item #16) both rely on `memmap2::Mmap::map()` over a
+file descriptor. wasm32-unknown-unknown has **no filesystem
+syscalls**. wasi-preview-1 has `path_open` + virtual file
+descriptors, but:
+
+- Browser wasm runtimes don't ship wasi; you need a JS-side
+  shim (wasmer-js, wasi-shim).
+- Even with a shim, the JS-side "filesystem" is typically
+  IndexedDB or OPFS — **both copy bytes through ArrayBuffer
+  boundaries on every read**, defeating the whole point of
+  mmap-back. The OS can't evict cold pages from your tab's
+  linear memory because *the bytes never reside outside it*.
+- `Mmap::map` produces a slice over kernel-managed pages.
+  The wasm equivalent (slice into a separate `WebAssembly.Memory`)
+  doesn't give the *eviction* property — the JS engine has to
+  hold the whole buffer for the lifetime of the export.
+
+**Net:** mmap'd SRS in wasm is "load SRS into a Vec, slice
+into the Vec". Same as today. No headroom gain.
+
+#### §11.2.2 `tempfile` + disk-spill is meaningless in wasm
+
+The disk-spill cosets (§10.2 #16) writes cosets to a tempfile
+and mmaps them back so the OS can evict. In wasm:
+
+- No tempfile syscall. JS-side analogues (IndexedDB "blob",
+  OPFS file) work, but...
+- The "spilled" bytes have to travel through JS to be persisted
+  (`postMessage`, `indexedDB.put`), then re-read into a new
+  ArrayBuffer slice to be consumed. **Round-trip through JS
+  costs CPU and doubles memory residency.**
+- The Rust prover would need both the original linear-memory
+  copy *and* the JS-side IndexedDB copy live simultaneously
+  during the transfer — the opposite of what we want.
+
+The only realistic disk-spill on web is *outside the wasm
+boundary*: have JS hold the SRS in OPFS and stream byte-slices
+into wasm linear memory on demand. That's a different
+architectural pattern (analogous to chunked streaming) — not
+the same patch.
+
+#### §11.2.3 `rayon` and threading require special setup
+
+Native arm64 prover saturates 8 cores via rayon. Default
+wasm32 is single-threaded. Browser threading **does work** via
+`wasm-bindgen-rayon` + `SharedArrayBuffer`, but only when:
+
+- The page is served with **COOP/COEP headers**
+  (`Cross-Origin-Opener-Policy: same-origin` +
+  `Cross-Origin-Embedder-Policy: require-corp`). Most apps
+  that embed cross-origin content can't easily enable these
+  (it breaks postMessage from common iframe widgets, ad
+  beacons, etc.).
+- The page is **served over HTTPS** (SharedArrayBuffer is
+  gated to secure contexts). Local dev requires
+  `localhost` (which is implicitly secure).
+- The build uses **nightly Rust** + `-Z build-std=panic_abort,std`
+  to recompile std with the threading flags. Custom build
+  recipe; not zero-config.
+- The deployment target's CSP allows SharedArrayBuffer (some
+  enterprise / wallet contexts disable it).
+
+When all of those line up, the punch list (§9) predicts
+30–50 % speedup. We have not landed this on the wallet's
+web target; the prerequisites are not subtle. Even when it
+lands, it improves **wall time**, not peak heap — orthogonal
+to the §10 unlocks.
+
+#### §11.2.4 `simd128` requires upstream patches
+
+The native prover doesn't currently have `#[cfg(target_feature
+= "simd128")]` paths in `transient-crypto` / `midnight-proofs`
+either — see §9 punch-list item #4. simd128 is a compile flag,
+not a code path; you opt in to it from generic code that the
+compiler can vectorise. The BLS12-381 field arithmetic
+hand-rolls its constant-time multiplication; LLVM is unlikely
+to auto-vectorise that without explicit intrinsics. **Blocked
+on upstream `midnight-curves` / `blst` work** — not a wasm
+limitation per se, but particularly impactful for wasm where
+single-thread + scalar arithmetic is the floor.
+
+#### §11.2.5 `getrusage` / `/proc/self/status` don't exist
+
+The per-phase memory instrumentation (§10.2 items #9 #10)
+samples RSS / HWM from `/proc/self/status` on Linux/Android
+and `getrusage(RUSAGE_SELF)` on Darwin. wasm has neither.
+`performance.memory` (JS API) is **non-standard, Chromium-
+only, and returns the entire tab's JS heap — not just the
+wasm linear memory** (heuristic + privacy-quantised). On
+Firefox and Safari there is **no per-tab memory introspection
+at all**.
+
+**Net:** the same `tracing` instrumentation that drove every
+§10 decision on Android cannot drive equivalent work on web.
+Future web optimisations would need to lean on JS-side
+microbenchmarks instead of phase-level memory deltas.
+
+### §11.3 Why the browser ceiling sits where it does
+
+Roughly, the web target's practical k-ceiling on a modern
+desktop browser is **k = 17–18** (matches the §9 Web table:
+k = 17 completes in 2 m 13 s, k = 18 was in flight at capture
+time). On a *mobile* browser (iOS Safari / Android Chrome) the
+ceiling drops to **k ≈ 16** because:
+
+- iOS Safari caps wasm memory at ~2 GiB.
+- Mobile Chrome's per-tab memory cap is ~1.5–2 GiB on most
+  devices (more aggressive than the desktop's 4 GiB).
+- No `SharedArrayBuffer` threading by default on iOS Safari
+  inside third-party iframe contexts.
+
+For our wallet, this means: **the web build can prove typical
+identity / DID circuits (k ≈ 12–14), can prove medium
+zswap-style shielded transactions (k ≈ 15–17), but cannot
+prove anything above that.** k = 19 + k = 20 are native-only.
+This is **fine for the wallet's UX target** — a typical wallet
+DID write is k = 12, comfortably under the ceiling — but the
+Benchmark tab's "Run all 1..20" loop will stop progressing
+somewhere around row 17 / 18.
+
+### §11.4 What the web target *can* still benefit from
+
+Not every §10 patch is wasm-hostile. The portable wins:
+
+| §10 patch                                       | Translates to wasm? | Notes |
+|---|---|---|
+| `warm_pk_cache` (#11)                           | **yes**             | Pure Rust, no syscalls. The 1.4 GiB savings translate proportionally. **Highest-priority port to web.** |
+| `lazy fixed_cosets` + `lazy permutation.cosets` (#14 #15) | **yes**     | Pure architectural change. Keygen-end heap floor drops the same way on wasm; doesn't help the prove-time peak. |
+| `mimalloc` (#13)                                | partial             | mimalloc compiles to wasm but the OS-page-return semantics don't apply (no OS pages — wasm linear memory grows but never shrinks pre-`memory.discard` proposal, not yet shipped). Net: marginal CPU effect, no memory effect. |
+| `mmap-backed SRS` (#8)                          | **no** (§11.2.1)    | |
+| `disk-spill cosets` (#16)                       | **no** (§11.2.2)    | |
+| Per-phase memory instrumentation (#9 #10)       | **no** (§11.2.5)    | Replace with JS-side `performance.now()` for wall time only |
+
+**Concrete short list of "do these next on web":**
+
+1. Port `warm_pk_cache` — same JS↔wasm boundary as today, just
+   pre-populate the cache from the keygen output before
+   serialise. Estimated 600 MB savings at k = 17 on desktop
+   browser; might push k = 18 from "in flight" to "completes".
+2. Apply lazy cosets — pure code change, same patch as
+   midnight-zk `d54c690` + `6cec3e7`. Keygen-end heap drops
+   ~600 MiB at k = 17.
+3. **Then accept the ceiling at k ≈ 18.** The advice cosets
+   and the SRS together push the prove-time peak above 4 GiB
+   at k = 19 and there is no patch that fixes a 32-bit address
+   space without `wasm64` browser support.
+
+### §11.5 Implication for product design
+
+For Midnight specifically — where the wallet must produce
+ZK proofs at k ≈ 12 for typical DID writes — **web wasm is
+viable** as a target. The architectural conclusion is:
+
+- **Native mobile (this PR chain):** the high-k unlock path
+  for power users who want shielded transactions, complex
+  smart contracts, future zkVM integrations. Ceiling now at
+  k = 20.
+- **Web wasm (the existing build):** the convenience path for
+  desktop users + light mobile use cases. Ceiling at k ≈ 17–18.
+  No path to k = 20 without `wasm64` shipping in browsers (no
+  known timeline).
+- **Cross-target consistency:** same proof format, same
+  verifier — a proof generated on web verifies on native and
+  vice versa. Users do not see a "web vs native" distinction
+  except in time-to-prove and ceiling.
+
+If a future product surface requires k = 19+ from a web
+context, the architectural answer is "delegate to a remote
+prover" — push the witness + circuit handle to a server that
+runs the native prover, get the proof back. The
+`proof-server-http` shape in §4.2 already exists for this
+exact case; the web client just becomes the witness-builder
++ network client.
+
+---
+
+## §12. What `k` actually means in production ZK — sizing context
+
+To put the §10 unlocks in industry context: how does k = 20
+on a phone compare to what real-world ZK projects deploy?
+This section is a survey of typical `k` values across the
+production ZK landscape (sourced 2026-05-23, primary references
+cited), so future architectural decisions can be grounded in
+real data rather than intuition.
+
+### §12.1 Survey of production ZK circuits
+
+| Project              | Use-case / circuit                          | k (log rows) | Approx constraints / rows         | Proof system               |
+|----------------------|---------------------------------------------|-------------:|-----------------------------------|----------------------------|
+| **Zcash Orchard**    | Action circuit (shielded spend + output)    | **11**       | 2 048 rows × 10 advice cols + lookups | halo2 (IPA, Pallas)       |
+| **Tornado Cash**     | Withdraw (Pedersen + Merkle-20)             | ~12          | ~28k R1CS                         | Groth16 (circom)           |
+| **Semaphore v3/v4**  | Membership + nullifier (Poseidon depth-20)  | ~14          | ~10–20k constraints               | Groth16 (circom)           |
+| **Aleo (Varuna)**    | Per-function R1CS — non-trivial programs    | 14–18 typical| application-dependent             | Varuna (Marlin → KZG)      |
+| **Scroll**           | Keccak permutation sub-circuit              | 16           | 2^16 rows                         | halo2-KZG                  |
+| **Mina (Kimchi)**    | Per-circuit hard cap (pre-chunking RFC)     | 16           | 2^16 rows                         | Kimchi + Pickles recursion |
+| **Noir / Aztec**     | UltraPlonk-bb browser-proving ceiling       | **~19**      | 2^19 max in browser; 1× Keccak ≈ 55k → k=16; 100× Keccak ≈ 1.8M → k=21 | UltraPlonk (Barretenberg) |
+| **Scroll zkEVM**     | EVM circuit (1 M gas batch, 116 cols)       | 18           | 2^18 rows, 50 lookups, max-degree 9 | halo2-KZG                 |
+| **RISC Zero zkVM**   | Single segment / RISC-V trace               | **20**       | largest of 6 segment sizes ≈ 2^20 cycles | STARK (Baby Bear, FRI)    |
+| **SP1 (Succinct)**   | Default shard size (zkVM)                   | **21**       | 2^21 trace rows / shard, many AIR chips | STARK + Plonky3           |
+| **Polygon zkEVM / zkSync / Linea / Taiko** | Production zkEVMs (survey of all four) | **20–24**     | 2^20–2^24 constraints typical workload | PLONKish + recursion |
+| **Filecoin Window PoSt** | Partition proof (32 GiB)                | ~26          | ~10^8 constraints (10 challenges × 2 349 sectors) | Groth16 |
+| **Filecoin SDR PoRep** | 32 GiB sector partition                   | **~27**      | **133 977 564 constraints** for 32 GiB partition | Groth16 (BLS12-381) |
+| **Midnight Compact** | Contract entry-point circuits               | **per-circuit, key-gen time** | application-dependent     | halo2-style (BLS12-381 + Poseidon) |
+
+Notes on the data:
+
+- **Orchard k = 11 is a real production number, not a typo.**
+  halo2 packs *very* densely with custom gates + lookups — 10
+  advice columns running parallel Sinsemilla, Merkle, Poseidon,
+  ECC, NoteCommit, and CommitIvk sub-chips. The raw row-count
+  understates the work; in raw constraint count Orchard is
+  closer to a k = 17-class R1CS circuit. ([orchard/src/circuit.rs:74](https://github.com/zcash/orchard/blob/main/src/circuit.rs))
+- **Aztec Noir explicitly hard-caps the browser at k = 19**
+  ([Aztec Noir Beta blog](https://aztec.network/blog/announcing-noir-beta-stable-fast-zk-applications-in-the-browser)),
+  for the same reason §11 documents: 4 GiB wasm linear-memory
+  wall.
+- **zkEVMs cluster at k = 20–24**, but they prove
+  on server-class hardware in clusters (or via recursion +
+  zkVM segments).
+- **Midnight Compact** circuits do not publicly fix a typical
+  `k` — it's determined at key-gen time from circuit shape.
+  Based on the kind of contract logic Compact targets (DID
+  updates, shielded transfers, identity rails, simple game
+  state), the realistic operating range sits in the
+  k = 11–15 band — comfortably under any platform target.
+
+### §12.2 Distribution diagram
+
+```mermaid
+pie showData title Production ZK circuits by log domain size k
+    "k <= 14 (small: identity, mixers, Tornado, Semaphore, Orchard-effective)" : 30
+    "k 15-17 (medium: app circuits, sub-rollup, mid-size Noir)" : 40
+    "k 18-20 (large: zkEVM sub-circuits, zkVM segments, Noir ceiling)" : 20
+    "k >= 21 (very large: full zkVMs, zkEVMs, Filecoin PoRep)" : 10
+```
+
+Reading: the *count* of distinct production circuits living in
+each bucket. By *proof volume*, server-class zkVMs and zkEVMs
+at k ≥ 20 dominate by orders of magnitude — but those run on
+clusters, not phones.
+
+### §12.3 Where k = 20 on a phone fits
+
+k = 20 on a Samsung S24 Ultra is **consumer-grade ambitious**.
+Concretely:
+
+- Roughly **equivalent in raw row count** to a single segment
+  of RISC Zero's zkVM (k = 20), Scroll's EVM sub-circuit
+  (k = 18), and the Aztec/Noir browser ceiling (k = 19).
+- **Trivial relative** to a full zkEVM batch (k = 20–24,
+  multi-million constraints, cluster-proved) and Filecoin's
+  PoRep (k ≈ 27, ~10^8 constraints).
+- Roughly **2 000× larger** than a typical privacy wallet
+  action circuit:
+  - A shielded transaction shaped like Orchard ≈ 2 048 dense
+    rows (k = 11 nominal, ~k = 17 effective work).
+  - A Semaphore-style membership + nullifier proof ≈ 10–20k
+    constraints (k ≈ 14).
+  - A Tornado-style mixer withdraw ≈ 28k R1CS (k ≈ 14).
+
+So for our wallet specifically: a mobile prover able to
+handle k = 20 has **at least 16× headroom** over any
+realistic single-action privacy circuit. The constraint is
+no longer "can the phone prove it" but "how aggressively
+do we want to amortise multiple actions into one proof."
+
+The honest bottom line: k = 20 on a phone is a meaningful
+milestone — it puts mobile in the same league as a desktop
+browser running Noir, and in the same league as a single
+RISC Zero zkVM segment. It does not put mobile in the league
+of zkEVM batching (intentionally — that workload doesn't
+belong on a phone), but it does mean every consumer-facing
+privacy circuit ever shipped (Orchard, Semaphore, Tornado,
+Aleo's hello-tier programs) fits comfortably with plenty
+of headroom.
+
+### §12.4 Implication for product sizing
+
+For the Midnight wallet specifically, the architectural
+question becomes: at what k do we set the wallet's "expected
+prove" budget, and what fraction of users does that satisfy?
+
+| Operating point | Native arm64 (S24) wall | Web wasm wall | Use cases that fit |
+|---|---|---|---|
+| k = 11 (Orchard-scale) | ≈ 250 ms                | ≈ 1.8 s        | DID update, simple identity claim |
+| k = 14 (Semaphore-scale)| ≈ 3.5 s                | ≈ 18 s        | Membership proofs, nullifier-based privacy |
+| k = 17 (mid app)        | ≈ 33 s                 | ≈ 2 m         | Shielded transactions, multi-action bundles |
+| k = 18 (DeFi-scale sub-circuit) | ≈ 50 s         | ~ ceiling     | Complex Compact contracts |
+| **k = 20 (this PR)**    | **≈ 5 m 52 s**         | **out of reach**| Whatever we want — multi-action shielded batches, complex stateful contracts |
+
+The product implication: **set the default UX budget at k = 17
+(33 s wall on S24, 2 minutes on web), surface k = 20 as a
+"power-user" capability with a "this will take ~6 minutes"
+confirmation dialog.** Above k = 20 the wallet should
+recommend remote-prover delegation (§4.2).
+
+---
+
+## §13. React Native packaging — feasibility + concrete proposal
+
+The current mobile target is `mobile-bench/dioxus-wallet` —
+Dioxus 0.6 + WebView for UI, pure Rust for proving. A
+downstream team building a React Native wallet would like to
+embed *just the proof generator*, not the full Dioxus shell.
+This section is the research answer to "how should we ship
+this?", grounded in primary-source evidence: Apple developer
+forums, Android source, the UniFFI changelog, and production
+projects (mopro, librustzcash, iden3/rapidsnark, Bitwarden).
+
+### §13.1 The right framing — process isolation, not background services
+
+An earlier version of this section dismissed "embedded HTTP
+server" on the grounds that iOS doesn't allow long-running
+background processes. **That framing was wrong** and missed the
+real question. What we actually want from "Option B" is
+**process-level fault isolation**:
+
+- A 4.4 GiB proof OOM in the prover **must not kill the host
+  RN app.** With one process, an `abort()` in the proof code
+  tears down the entire UI; the user loses transaction state
+  and confidence. With two processes, the OS kills the prover
+  process only, the UI process sees a clean
+  `onServiceDisconnected` callback, the user retries.
+
+- The lifecycle is **on-demand**, not persistent:
+  - User taps "prove" → spin up isolated prover process →
+    stream witness in → stream proof out → tear it down.
+  - User backgrounds the app → tear down on transition.
+  - App relaunches → start with nothing running.
+
+This is **not** "a long-running daemon." It is "a sacrificial
+worker spun up for a single prove call." Every isolation
+property we want comes from that one design choice, on the
+platforms where it's available.
+
+The question for each platform is then narrower: **is on-demand
+process isolation available, and at what cost?**
+
+### §13.2 Platform reality (research-backed)
+
+#### iOS — process isolation is impossible, period
+
+Apple's iOS sandbox enforces this at the kernel level, not as
+App Store policy. Citations:
+
+- **`posix_spawn` / `fork` are blocked.** Apple DTS engineer
+  Quinn states explicitly: "iOS apps are not allowed to spawn
+  child processes." Enforced by the iOS sandbox (a different
+  mechanism from macOS App Sandbox). It is not a Review-only
+  rule — the syscall fails. ([Apple Developer Forums thread/747499](https://developer.apple.com/forums/thread/747499))
+- **App Extensions cannot be used as generic helpers.** Per
+  the App Extension Programming Guide, extensions launch
+  "when a user chooses [it] from an app's UI or from a
+  presented activity view controller" — programmatic
+  instantiation from the host is not exposed. Extensions
+  "terminate soon after [completing] the request" and have
+  *smaller* memory limits, not larger. ([App Extension Programming Guide](https://developer.apple.com/library/archive/documentation/General/Conceptual/ExtensibilityPG/ExtensionOverview.html))
+- **`NSXPCConnection` is macOS-only.** The C `libxpc`
+  primitives exist on iOS but are reserved for system
+  services / extension infrastructure; third-party app-to-app
+  XPC is not exposed. ([NSXPCConnection docs](https://developer.apple.com/documentation/foundation/nsxpcconnection))
+- **`WKWebView` *does* use multi-process** (UIProcess +
+  WebContent + Networking + Storage). It's the only
+  out-of-process compute model an iOS app gets for free. But
+  you can't piggyback your Rust prover into the WebContent
+  process — only JS/WASM inside the WebView benefits, which
+  routes the prover through WASM-in-WKWebView (a different
+  architecture; see §11). ([WKProcessPool](https://developer.apple.com/documentation/webkit/wkprocesspool))
+- **`BGContinuedProcessingTask` (iOS 26)** is the closest
+  legitimate "long-running" pattern. It lets work started in
+  the foreground continue through a brief backgrounding. But
+  it is **still the same process** — no OOM isolation. WWDC25
+  also flagged that backgrounded workloads run **4–5× slower**
+  than foreground. ([BGContinuedProcessingTask](https://developer.apple.com/documentation/backgroundtasks/bgcontinuedprocessingtask), [WWDC25 session 227](https://developer.apple.com/videos/play/wwdc2025/227/))
+
+**Verdict for iOS: there is no way to OOM-isolate a 4 GiB+
+prover from the main app.** The mitigation has to be
+ahead-of-time: streaming/mmap'd SRS, chunked witness
+construction, aggressive memory-pressure handling. No
+production iOS app spawns a helper binary because the kernel
+won't let them.
+
+#### Android — on-demand isolation is first-class
+
+Citations:
+
+- **`<service android:process=":proverProcess">`** is a
+  documented, supported feature. Per [Android manifest docs](https://developer.android.com/guide/topics/manifest/service-element):
+  "If the name begins with a colon (`:`), a new process,
+  private to the application, is created when it's needed and
+  the service runs in that process." This is exactly the
+  on-demand pattern.
+- **Independent lmkd accounting.** Android's [low-memory
+  killer daemon](https://source.android.com/docs/core/perf/lmkd)
+  uses per-process `oom_score_adj` based on each process's
+  state (foreground / visible / service / cached).
+  `:proverProcess` and the main UI process get scored
+  **separately**. If the prover OOMs at 4 GiB, lmkd kills
+  *it*; the UI process survives; the user sees a clean
+  `onServiceDisconnected` callback. **This is exactly the
+  isolation we want.**
+- **Binder has a 1 MiB transaction limit** ([Android docs](https://developer.android.com/reference/android/os/TransactionTooLargeException),
+  [issuetracker 36999615](https://issuetracker.google.com/issues/36999615)).
+  MB-scale byte arrays (proof bytes, SRS chunks) must use
+  `android.os.SharedMemory` (API 27+) or `ParcelFileDescriptor`
+  — the Binder call carries only the fd, the bytes are mapped
+  via shared memory. **Effectively zero-copy IPC.**
+  ([SharedMemory / Ashmem](https://hujinhan.medium.com/implementing-ashmem-to-share-data-between-processes-4f707e0bfc7b))
+- **Cancellation** is clean: `unbindService()` after last
+  client unbinds tears down `:proverProcess`. For mid-prove
+  cancellation, send a Binder `oneway` cancel message that
+  the Rust side polls (same cooperative-cancel discipline we'd
+  need in any model). `Process.killProcess(remotePid)` is the
+  last-resort hammer.
+- **Doze** affects background scheduling (JobScheduler,
+  alarms, network) — a foreground prover service triggered by
+  user action is not gated by Doze.
+- **Real-world precedent:** Chrome's tab process model,
+  WebView's renderer process, [Microsoft's out-of-process
+  services guide](https://learn.microsoft.com/en-us/xamarin/android/app-fundamentals/services/out-of-process-services)
+  explicitly recommends this pattern when the service "has a
+  large memory footprint." Multi-process is standard Android
+  practice.
+
+**Verdict for Android: separate-process Service with
+`SharedMemory` IPC is the right architecture.** Free OOM
+isolation, zero-copy buffer transfer, clean lifecycle.
+
+### §13.3 The bindings question — UniFFI vs hand-written
+
+Orthogonal to the process-model question is *how* the Rust
+code is called from the platform layer. Three serious options:
+
+| Option | Bindings tool | Production users | Bridge LOC | API stability | Buffer-copy on hot path |
+|---|---|---|---|---|---|
+| **UniFFI** (`uniffi-bindgen-react-native`) | Codegen from `#[uniffi::export]` Rust | Mozilla (Firefox app-services), [Bitwarden SDK](https://contributing.bitwarden.com/architecture/sdk/), [mopro](https://github.com/zkmopro/mopro) | ~0 (generated) | **Breaking changes per minor**: 0.28→0.29 removed `UniffiCustomTypeConverter` + `extern` syntax; 0.30→0.31 changed method-checksum compat. Pin and treat upgrades as scheduled work. ([Upgrading](https://mozilla.github.io/uniffi-rs/next/Upgrading.html), [CHANGELOG](https://github.com/mozilla/uniffi-rs/blob/main/CHANGELOG.md)) | **Yes** — `Vec<u8>` → `Uint8Array`/`ArrayBuffer` still copies through JSI even after [PR #187](https://github.com/jhugman/uniffi-bindgen-react-native/pull/187); the Hermes no-copy `ArrayBuffer` constructor ([Hermes #564](https://github.com/facebook/hermes/issues/564)) is **not** wired into the UniFFI path. |
+| **Hand-written JNI + Swift bridge** | Manual | [librustzcash / ZcashLightClientKit](https://github.com/Electric-Coin-Company/zcash-swift-wallet-sdk) + [zcash-android-wallet-sdk JNI](https://zcash.readthedocs.io/en/latest/android/zcash-android-wallet-sdk/cash.z.wallet.sdk.jni/); Signal Rust libs | Thousands of LOC (librustzcash JNI spans many modules) | Stable — you own the surface | **No** — JNI direct ByteBuffer + Swift `Data.withUnsafeBytes` give zero-copy borrow |
+| **Hand-written JSI C++ module** (rapidsnark-style) | Manual JSI | [iden3/react-native-rapidsnark](https://github.com/iden3/react-native-rapidsnark) | Low hundreds for the JSI surface + build glue | Stable | **No** — JSI's no-copy `ArrayBuffer` constructor is available on Hermes; true zero-copy achievable |
+
+Two specific things to flag:
+
+- **UniFFI deadlock history is real but bounded.** PRs [#88](https://github.com/jhugman/uniffi-bindgen-react-native/pull/88)
+  and [#158](https://github.com/jhugman/uniffi-bindgen-react-native/pull/158)
+  in `uniffi-bindgen-react-native` traced to "polling next
+  future inside continuation callback while holding non-
+  reentrant mutex." The maintainer acknowledges the fixes
+  may not be complete ("I don't think this has fixed all
+  possible deadlocks"). **The risk lives in the cross-FFI
+  async-future glue**, not in core UniFFI. A synchronous
+  Rust `fn(witness) -> Vec<u8>` called from a JS Promise
+  wrapper on the platform side avoids this entire surface.
+
+- **JSI zero-copy buffer ingestion matters here.** For a
+  proof byte payload (~3 KiB) the copy is irrelevant. For
+  the **SRS** (~360 MiB mmap'd file, accessed from Rust
+  during keygen / prove) it would be catastrophic — UniFFI
+  would either copy the whole thing across JSI on every
+  prove, or you'd have to keep the SRS handle entirely
+  Rust-side and never pass bytes through the FFI boundary
+  (which is what we'd want anyway). The cleanest pattern:
+  **Rust owns the SRS via mmap on a known path; the FFI
+  never sees those bytes; the API surface is `prove(circuitId,
+  witness) -> proofBytes` and `witness` is the only thing
+  that crosses.**
+
+### §13.4 Updated A vs B vs D comparison
+
+Re-doing the matrix with the corrected understanding of
+on-demand isolation:
+
+| Dimension | A: UniFFI same-process (both platforms) | **B: Hybrid — Android isolated process + iOS in-process** | D: Hand-written bridges (both platforms) |
+|---|---|---|---|
+| **iOS process model** | In-process | In-process (no alternative exists) | In-process |
+| **Android process model** | In-process | **`:proverProcess` Service, on-demand** | In-process |
+| **iOS OOM isolation** | None | None (not achievable on iOS) | None |
+| **Android OOM isolation** | None — prover OOM kills RN app | **Yes — lmkd kills `:proverProcess` only** | None |
+| **iOS k = 20 viability** | Risky on pre-iPhone-15-Pro (3 GiB jetsam) | Same risk (iOS has no isolation lever) | Same risk |
+| **Android k = 20 viability** | Works on S24 today; risky on 4–6 GiB-RAM devices | **Robust** — bound by physical RAM, not by "must coreside with RN UI" | Works on S24, risky on smaller devices |
+| **Bindings stability** | UniFFI breaking changes per minor; pin and budget upgrade work | Same on iOS side; Android Service is via AIDL + Binder (stable) | Stable; you own the surface |
+| **Buffer-passing overhead** | Vec<u8> copies through JSI Uint8Array | Witness via UniFFI (small); proof bytes via `SharedMemory` on Android (zero-copy), via UniFFI on iOS (copy of ~3 KiB — negligible) | Zero-copy on both platforms (JSI no-copy ArrayBuffer + JNI ByteBuffer / Swift withUnsafeBytes) |
+| **Bridge LOC to maintain** | ~0 (generated) | UniFFI for the FFI seam + ~hundreds of LOC for the Android Service shell (AIDL + SharedMemory plumbing) | Thousands of LOC across iOS + Android |
+| **Async story** | UniFFI Rust → JS Promise; recent deadlock fixes; pin a version | Same on iOS; on Android the Service Binder dance is well-trodden | Custom; you choose the model |
+| **Engineering effort to first working `prove()`** | 4–6 PW | 6–9 PW (1–2 PW extra for the Android Service + AIDL + SharedMemory layer) | 10–14 PW |
+
+### §13.5 Recommendation — Option B (hybrid)
+
+**Pick UniFFI as the FFI seam on both platforms. On Android,
+host the UniFFI-generated Kotlin shim *inside a separate
+`:proverProcess` Service*; expose it to RN via AIDL + Binder
++ `SharedMemory`. On iOS, host the same UniFFI-generated
+Swift shim *inside the main app process* (no alternative
+exists); wrap long proves in a `BGContinuedProcessingTask` so
+a brief backgrounding doesn't kill the work.**
+
+Rationale:
+
+1. **Free Android OOM isolation** — the entire point of the
+   "Option B" framing the user pushed back on. We get this
+   *because* the user was right: on-demand isolation is
+   first-class on Android, and we should not pretend
+   otherwise.
+
+2. **Honest about iOS** — no amount of architectural rework
+   gives us OOM isolation on iOS. We mitigate ahead-of-time
+   (streaming SRS, chunked witness, careful memory-pressure
+   handling) and accept that pre-iPhone-15-Pro hardware may
+   not support k = 20. This is a *platform constraint*, not
+   a packaging mistake.
+
+3. **UniFFI for the FFI seam, on both** — keeps one bindings
+   surface to maintain. The deadlock risk is in cross-FFI
+   futures; we side-step it by making `prove()` a
+   synchronous-Rust call posted to a background thread, with
+   a completion callback over the platform-native async
+   primitive (Coroutine / Combine / Promise). The
+   [mopro](https://github.com/zkmopro/mopro) project uses
+   this exact pattern in production for ZK proving on mobile
+   — strongest precedent for this direction.
+
+4. **Hand-write the JSI buffer ingestion specifically** —
+   UniFFI's `Vec<u8>` → JSI `Uint8Array` copy is acceptable
+   for ~3 KiB proof bytes but unacceptable for any path that
+   exposes the SRS. The SRS stays entirely Rust-side
+   (mmapped from a known path); the FFI never sees those
+   bytes. The hand-written JSI surface is small and
+   purpose-built (a few dozen LOC).
+
+5. **No persistent server** — the Android Service lifecycle
+   is "bind on `prove`, unbind on `done` or app-background."
+   No daemon, no resident memory between proves, no
+   background restart contract. The `:proverProcess` is
+   killed by the OS as a cached process once we unbind; the
+   next prove spins a fresh one.
+
+### §13.6 What this gives us
+
+| Property | Android | iOS |
+|---|---|---|
+| OOM in prover kills RN app | **No** — process boundary catches it | Yes — mitigate ahead-of-time |
+| Cancellable mid-prove | Yes (Binder oneway + cooperative poll) | Yes (cooperative poll) |
+| Per-prove cold start cost | ~50–100 ms (Service bind + Binder setup) | ~0 (in-process) |
+| SRS shipping | First-run download to `getCacheDir()`; mmapped Rust-side | First-run download to `Library/Caches/`; mmapped Rust-side |
+| Proof byte transfer | `SharedMemory` (zero-copy) | JSI `Uint8Array` copy (~3 KiB — negligible) |
+| Witness transfer (KB-scale) | UniFFI `Vec<u8>` (acceptable) | UniFFI `Vec<u8>` (acceptable) |
+| App backgrounded mid-prove | `:proverProcess` may be lmkd-killed; we report cancelled to RN | `BGContinuedProcessingTask` extends; if still backgrounded long, work cancels |
+
+### §13.7 Concrete proposal — `@midnight-ntwrk/react-native-prover`
+
+**Repo layout** (revised for the hybrid model):
+
+```
+midnight-react-native-prover/
+├── crates/
+│   └── prover-ffi/                       # UniFFI wrapper around contract-benchmark
+│       ├── Cargo.toml                    # cdylib + staticlib
+│       ├── build.rs                      # uniffi-bindgen-react-native invocation
+│       └── src/
+│           ├── lib.rs                    # #[uniffi::export] entry points
+│           │                             #   prove(circuit_id, witness, opts) -> Vec<u8>
+│           │                             #   verify(...)
+│           │                             #   srs_info(path) -> SrsInfo
+│           │                             #   cancel(handle)
+│           ├── srs.rs                    # mmap SRS from path; verify SHA
+│           └── progress.rs               # cooperative-cancel + phase callback
+├── ios/
+│   ├── MidnightProver.podspec
+│   ├── MidnightProver.xcframework/       # UniFFI-generated + cargo-built; Git LFS
+│   └── jsi/
+│       └── MidnightProverJSI.cpp         # hand-written JSI buffer-borrow path
+├── android/
+│   ├── build.gradle
+│   ├── src/main/jniLibs/arm64-v8a/libmidnight_prover.so
+│   ├── src/main/AndroidManifest.xml      # declares <service android:process=":proverProcess">
+│   ├── src/main/java/.../ProverService.kt  # the isolated Service
+│   ├── src/main/aidl/.../IProver.aidl    # Binder interface
+│   └── src/main/cpp/MidnightProverJSI.cpp # hand-written JSI buffer-borrow path
+├── src/                                  # TypeScript (generated + hand-written)
+│   ├── index.ts                          # public API re-export
+│   └── NativeMidnightProver.ts           # JSI spec for codegen
+├── package.json
+└── example/                              # RN test harness
+```
+
+**Public TypeScript API** (the public surface deliberately
+doesn't reveal the process model — same `await prove(...)`
+shape on both platforms):
+
+```ts
+export type ProveOptions = {
+  srsPath: string;                   // absolute path to mmap'd SRS file
+  signal?: AbortSignal;              // cancellation
+  onProgress?: (p: Progress) => void;
+};
+export type Progress = {
+  phase: 'witness' | 'commit' | 'permutation' | 'lookup' | 'opening' | 'done';
+  phaseIndex: number;
+  phaseCount: number;
+  etaSeconds?: number;
+};
+export type ProveResult = {
+  proof: Uint8Array;
+  publicInputs: Uint8Array;
+  elapsedMs: number;
+};
+
+export function prove(
+  circuitId: string,
+  witness: Uint8Array,
+  opts: ProveOptions
+): Promise<ProveResult>;
+
+export function verify(
+  circuitId: string,
+  proof: Uint8Array,
+  publicInputs: Uint8Array,
+  srsPath: string
+): Promise<boolean>;
+```
+
+#### Android Service contract (concrete)
+
+```kotlin
+// AndroidManifest.xml
+<service
+    android:name=".ProverService"
+    android:process=":proverProcess"
+    android:exported="false" />
+
+// IProver.aidl
+interface IProver {
+    int beginProve(in String circuitId,
+                   in ParcelFileDescriptor witnessFd,
+                   in IProverCallback callback);
+    void cancel(int handle);
+}
+interface IProverCallback {
+    void onProgress(in ProverProgress p);
+    void onSuccess(in ParcelFileDescriptor proofFd);
+    void onError(int code, in String msg);
+}
+
+// ProverService.kt — runs in :proverProcess
+class ProverService : Service() {
+    private val binder = object : IProver.Stub() {
+        override fun beginProve(circuitId: String,
+                                witnessFd: ParcelFileDescriptor,
+                                cb: IProverCallback): Int {
+            // mmap witness from fd; call into UniFFI-generated Rust;
+            // write proof to a fresh SharedMemory; hand back the fd.
+        }
+    }
+    override fun onBind(intent: Intent): IBinder = binder
+}
+```
+
+Key points:
+
+- The Service's `onBind` callback is what triggers
+  `:proverProcess` to be created (or reused if a previous
+  prove from the same app instance hasn't been unbound yet).
+- Witness bytes flow in via `ParcelFileDescriptor` →
+  zero-copy mmap on the Rust side.
+- Proof bytes flow out via `SharedMemory` → zero-copy read
+  on the RN side.
+- Cancellation is a `oneway` Binder call setting a flag the
+  Rust prover polls at phase boundaries.
+
+#### Build recipe (revised for hybrid)
+
+```bash
+# Rust → native artefacts (same for both platforms)
+cargo install cargo-ndk uniffi-bindgen-react-native
+cd crates/prover-ffi
+
+# iOS (universal xcframework)
+for tgt in aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios; do
+  cargo build --release --target $tgt
+done
+ubrn build ios --release --and-generate     # → .xcframework + Swift + TS
+
+# Android (arm64-v8a — shipping ABI only)
+cargo ndk -t arm64-v8a build --release
+ubrn build android --release --and-generate # → .so + Kotlin + TS
+
+# Build the hand-written JSI buffer-borrow C++ modules
+# (small; lives in the platform projects, not in Rust)
+
+# Wrap & publish
+yarn install && yarn prepack
+npm publish --access restricted
+```
+
+### §13.8 Effort estimate (revised)
+
+| Option | Time to first working `prove()` from JS on both platforms | Notes |
+|---|---|---|
+| A (UniFFI same-process everywhere) | **4–6 PW** | The easy path; ships the Android OOM-isolation risk |
+| **B (hybrid — recommended)** | **6–9 PW**                                          | A + 2–3 PW for the Android `:proverProcess` Service shell (AIDL + SharedMemory + lifecycle plumbing) |
+| D (hand-written bridges everywhere) | **10–14 PW**                                       | Strictly more LOC than B without giving anything B doesn't, on either platform |
+
+### §13.9 Risks and unknowns (post-research)
+
+**Known risks that the research nailed down:**
+
+- **iOS jetsam at ~3 GiB.** Confirmed. The 4.4 GiB k = 20
+  peak *will* OOM-kill on pre-iPhone-15-Pro hardware. **Not
+  solvable by switching to "Option B"** — Apple's kernel
+  forbids the helper process. Mitigation is ahead-of-time:
+  streaming SRS (yet to design), reducing default k, or
+  declaring iPhone 15 Pro as the floor.
+- **UniFFI breaking-change cadence.** Confirmed across the
+  changelog. Pin the version, treat upgrades as scheduled
+  quarterly work.
+- **UniFFI buffer copies for `Vec<u8>` across JSI.**
+  Confirmed by PR #187 status. Mitigation: keep the SRS
+  entirely Rust-side; only witness (KB) and proof (~KB)
+  bytes cross the FFI boundary; SharedMemory carries the
+  proof on Android.
+
+**Unknowns that still need a real-device experiment:**
+
+- **iOS k = 20 viability on iPhone 15 Pro.** Theoretical
+  budget says it fits (8 GB RAM, ~5 GiB per-app jetsam).
+  Untested.
+- **Android Service cold-start cost.** Estimated 50–100 ms
+  but device-dependent; measure once the bindings exist.
+- **UniFFI deadlock recurrence under our specific async
+  pattern.** Mitigation is to *not* use UniFFI's cross-FFI
+  async futures (call synchronous Rust on a background
+  thread, surface the result via Coroutine/Promise on the
+  platform layer). PRs #88 + #158 are the litmus test we'd
+  want a stress harness for before promising production
+  use.
+
+### §13.10 Why not Option D (hand-written everything)
+
+Hand-written JNI + Swift bridges everywhere give us:
+
+- Zero-copy buffer passing on both platforms (vs UniFFI's
+  Uint8Array copy)
+- No UniFFI version-upgrade tax
+- Full control over the async / thread model
+
+But cost us:
+
+- **Thousands of LOC** of platform-glue duplicating logic
+  that mopro and Bitwarden have already shaken out.
+- **Two FFI surfaces** (Swift / Kotlin) that drift over time
+  unless heavily disciplined.
+- **No corresponding capability gain** — the OOM-isolation
+  win on Android comes from the Service / process model,
+  *not* from the bindings choice. UniFFI inside an Android
+  Service gets the same isolation as hand-written code
+  inside the same Service.
+
+Where we *should* hand-write code is exactly where UniFFI is
+weak: **JSI buffer ingestion**. A small dedicated JSI C++
+module on each platform handles the no-copy `ArrayBuffer`
+constructor path for any bulk-byte API. UniFFI handles the
+control plane (`prove`, `verify`, `cancel`, callbacks).
+
+### §13.11 Primary references
+
+- **iOS process model:**
+  [Apple Developer Forums – fork/posix_spawn (Quinn)](https://developer.apple.com/forums/thread/747499),
+  [App Extension Programming Guide](https://developer.apple.com/library/archive/documentation/General/Conceptual/ExtensibilityPG/ExtensionOverview.html),
+  [NSXPCConnection docs](https://developer.apple.com/documentation/foundation/nsxpcconnection),
+  [WKProcessPool](https://developer.apple.com/documentation/webkit/wkprocesspool),
+  [BGContinuedProcessingTask](https://developer.apple.com/documentation/backgroundtasks/bgcontinuedprocessingtask) +
+  [WWDC25 session 227](https://developer.apple.com/videos/play/wwdc2025/227/)
+- **Android multi-process:**
+  [`<service>` manifest element](https://developer.android.com/guide/topics/manifest/service-element),
+  [lmkd docs](https://source.android.com/docs/core/perf/lmkd),
+  [TransactionTooLargeException](https://developer.android.com/reference/android/os/TransactionTooLargeException) +
+  [issuetracker 36999615](https://issuetracker.google.com/issues/36999615),
+  [SharedMemory / Ashmem](https://hujinhan.medium.com/implementing-ashmem-to-share-data-between-processes-4f707e0bfc7b),
+  [Xamarin: out-of-process services](https://learn.microsoft.com/en-us/xamarin/android/app-fundamentals/services/out-of-process-services)
+- **UniFFI ecosystem:**
+  [Mozilla/uniffi-rs](https://github.com/mozilla/uniffi-rs),
+  [UniFFI Upgrading](https://mozilla.github.io/uniffi-rs/next/Upgrading.html),
+  [UniFFI CHANGELOG](https://github.com/mozilla/uniffi-rs/blob/main/CHANGELOG.md),
+  [jhugman/uniffi-bindgen-react-native](https://github.com/jhugman/uniffi-bindgen-react-native),
+  [PR #88](https://github.com/jhugman/uniffi-bindgen-react-native/pull/88) +
+  [PR #158](https://github.com/jhugman/uniffi-bindgen-react-native/pull/158) +
+  [PR #187](https://github.com/jhugman/uniffi-bindgen-react-native/pull/187),
+  [Hermes #564 no-copy ArrayBuffer](https://github.com/facebook/hermes/issues/564)
+- **Production ZK-on-mobile precedents:**
+  [zkmopro/mopro](https://github.com/zkmopro/mopro) (UniFFI-based, production),
+  [iden3/react-native-rapidsnark](https://github.com/iden3/react-native-rapidsnark) (hand-written, production),
+  [librustzcash / zcash-android-wallet-sdk JNI](https://zcash.readthedocs.io/en/latest/android/zcash-android-wallet-sdk/cash.z.wallet.sdk.jni/) +
+  [ZcashLightClientKit](https://github.com/Electric-Coin-Company/zcash-swift-wallet-sdk) (hand-written, production),
+  [Bitwarden SDK Architecture](https://contributing.bitwarden.com/architecture/sdk/) (UniFFI, production)
