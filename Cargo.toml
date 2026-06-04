@@ -26,9 +26,6 @@ members = [
     "static",
     "storage-core",
     "mobile-bench/prover-core",
-    "mobile-bench/dioxus-bench",
-    "mobile-bench/wallet-core",
-    "mobile-bench/dioxus-wallet",
     "mobile-bench/contract-benchmark",
     "mobile-bench/contract-benchmark-wasm",
 ]
@@ -130,4 +127,4 @@ config = ".spellcheck/cargo-spellcheck.toml"
 # lose `drop_lazy_bases` (no other consumer currently calls it,
 # so the only fallout is contract-benchmark losing the API hook).
 [patch.crates-io]
-midnight-proofs = { path = "/Users/ysh/iohk/midnight-zk/proofs" }
+midnight-proofs = { path = "../midnight-zk/proofs" }
