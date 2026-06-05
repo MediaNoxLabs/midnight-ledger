@@ -356,6 +356,12 @@ impl<T: Zkir + Tagged> Tagged for ProverKey<T> {
 }
 
 const PK_CACHE_SIZE: usize = 5;
+/// Schema version for the on-disk gzipped-PK cache produced by
+/// [`ProverKey::warm_pk_cache_with_disk`]. Bump when any input that
+/// changes the bytes of `MidnightPK::write` changes (PK layout, gzip
+/// settings, etc.) so stale blobs from before the change get
+/// invalidated by filename instead of producing silent cache misses.
+pub const PK_GZ_CACHE_SCHEMA_VERSION: u32 = 1;
 
 lazy_static! {
     // forall<T> Arc<MidnightPK<T>>
@@ -468,6 +474,93 @@ impl<T: Zkir> ProverKey<T> {
         let hash = persistent_hash(&inner_buf);
         if let Ok(mut c) = PK_CACHE.lock() {
             c.put(hash, arc_pk as Arc<dyn Any + Send + Sync>);
+        }
+        Ok(true)
+    }
+
+    /// Like [`warm_pk_cache`], but persists the gzipped PK blob to
+    /// `gz_cache_path` on first miss and re-uses it from disk on
+    /// subsequent process invocations. The gzip of `MidnightPK::write`
+    /// output is deterministic for a given `(PK_layout, SRS, IR)`, so
+    /// the cached blob is safe to share across runs as long as none of
+    /// those inputs change.
+    ///
+    /// Safety / correctness: if the file on disk is stale (different
+    /// PK), the `persistent_hash` we register in `PK_CACHE` simply
+    /// will not match the consumer side's `try_cache` lookup hash
+    /// (which is computed from the bytes the resolver actually ships
+    /// via `tagged_serialize`, freshly gzipped from the live `Arc<PK>`).
+    /// In that case the cache entry is dead weight and the consumer
+    /// falls back to the regular `MidnightPK::read` path — no
+    /// correctness hazard, just no speed-up. Cache schema is versioned
+    /// via [`PK_GZ_CACHE_SCHEMA_VERSION`]; embed it in the caller's
+    /// filename so a schema bump invalidates stale files cleanly.
+    ///
+    /// Returns `Ok(true)` if the cache was warmed (from disk or after
+    /// a fresh compress + persist), `Ok(false)` if the key was not
+    /// `Initialized`.
+    pub fn warm_pk_cache_with_disk(
+        &self,
+        gz_cache_path: &std::path::Path,
+    ) -> std::io::Result<bool> {
+        let arc_pk = {
+            let mutex = self.0.lock().expect("mutex not poisoned");
+            match &*mutex {
+                InnerProverKey::Initialized(key) => key.clone(),
+                _ => return Ok(false),
+            }
+        };
+
+        // Fast path: disk hit. Read the gz blob, hash it, install in
+        // PK_CACHE keyed by that hash. No gzip recompute on the prove
+        // critical path.
+        if let Ok(disk_bytes) = std::fs::read(gz_cache_path) {
+            if !disk_bytes.is_empty() {
+                let hash = persistent_hash(&disk_bytes);
+                if let Ok(mut c) = PK_CACHE.lock() {
+                    c.put(hash, arc_pk as Arc<dyn Any + Send + Sync>);
+                }
+                return Ok(true);
+            }
+        }
+
+        // Slow path: recompute the gzip, persist atomically, warm
+        // PK_CACHE. The gzip itself is exactly the same work the
+        // base `warm_pk_cache` does — we just additionally write it
+        // out so the next process can skip it.
+        let mut inner_buf = Vec::new();
+        {
+            let mut writer = flate2::write::GzEncoder::new(
+                &mut inner_buf,
+                flate2::Compression::new(PK_COMPRESSION_LEVEL),
+            );
+            arc_pk.write(&mut writer, SerdeFormat::RawBytesUnchecked)?;
+            writer.finish()?;
+        }
+
+        let hash = persistent_hash(&inner_buf);
+        if let Ok(mut c) = PK_CACHE.lock() {
+            c.put(hash, arc_pk as Arc<dyn Any + Send + Sync>);
+        }
+
+        // Persist via tmpfile + rename so a crashed write never leaves
+        // a half-written cache file. Best-effort: on failure we log
+        // and continue — the in-memory PK_CACHE entry is already
+        // installed.
+        if let Some(parent) = gz_cache_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let tmp_path = gz_cache_path.with_extension("bin.tmp");
+        if let Err(e) = std::fs::write(&tmp_path, &inner_buf)
+            .and_then(|_| std::fs::rename(&tmp_path, gz_cache_path))
+        {
+            tracing::warn!(
+                target: "midnight_bench",
+                stage = "warm_pk_cache_with_disk.persist_failed",
+                path = %gz_cache_path.display(),
+                err = %e,
+            );
+            let _ = std::fs::remove_file(&tmp_path);
         }
         Ok(true)
     }
