@@ -753,6 +753,41 @@ pub async fn run_proof(k: u32) -> Result<RunStats> {
     run_proof_with_opts(k, RunOpts::default()).await
 }
 
+/// Run only the IR-build + `IrSource::keygen` step for `k` and store
+/// the resulting `(pk, vk)` pair in the process-wide `KEY_CACHE`.
+/// A subsequent `run_proof_with_opts(k, …)` with `opts.cache_keys =
+/// true` then hits the cache and skips keygen entirely.
+///
+/// This is the back-end for the FFI-side `warm_keygen` prefetch:
+/// the FFI fires this on a background worker thread immediately
+/// after a `prove(k)` call so the next iteration's keygen overlaps
+/// with the current iteration's prove. Honours `opts.cache_dir`
+/// for the SRS lookup just like `run_proof_with_opts`.
+///
+/// Returns `Ok(())` on success — discards timing information; the
+/// caller is expected to be fire-and-forget.
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn keygen_for_k(k: u32, opts: &RunOpts) -> Result<()> {
+    if !(MIN_K..=MAX_K).contains(&k) {
+        return Err(Error::KOutOfRange { requested: k });
+    }
+    // Skip work if the key cache already has this k. Saves the IR
+    // build for the common "already warmed by a prior prove" case.
+    if opts.cache_keys && key_cache_lookup(k).is_some() {
+        return Ok(());
+    }
+    let params = make_zswap_resolver(opts.cache_dir.as_deref())?;
+    let (ir, _chain_len) = build_ir_for_k(k)?;
+    let pair = ir
+        .keygen(&params.0)
+        .await
+        .map_err(|e| Error::Anyhow(anyhow::anyhow!("keygen: {e}")))?;
+    if opts.cache_keys {
+        key_cache_store(k, pair);
+    }
+    Ok(())
+}
+
 fn make_preimage() -> ProofPreimage {
     ProofPreimage {
         inputs: vec![Fr::from(1u64)],
