@@ -741,8 +741,27 @@ fn make_zswap_resolver(cache_dir: Option<&std::path::Path>) -> Result<Arc<ZswapR
             }
         }
     }
+    // `MIDNIGHT_NO_FETCH=1` switches the provider to `Synchronous`
+    // mode: `get_file` reads from the local SRS cache only and never
+    // builds a reqwest client. We use this on Android, where the
+    // transitive `rustls-platform-verifier` dep panics on first
+    // construction without a JVM/JNI context. The smoke-test binary
+    // sets this env var when running under `adb shell` (no JNI host
+    // around), and the operator pre-pushes the required SRS files
+    // with `adb push` before kicking off the run. Production
+    // RN/iOS prove paths leave the env var unset and keep the
+    // existing `OnDemand` behaviour.
+    let no_fetch = matches!(
+        std::env::var("MIDNIGHT_NO_FETCH").as_deref(),
+        Ok("1") | Ok("true"),
+    );
+    let fetch_mode = if no_fetch {
+        FetchMode::Synchronous
+    } else {
+        FetchMode::OnDemand
+    };
     let provider = MidnightDataProvider::new(
-        FetchMode::OnDemand,
+        fetch_mode,
         OutputMode::Log,
         ZSWAP_EXPECTED_FILES.to_vec(),
     )?;
