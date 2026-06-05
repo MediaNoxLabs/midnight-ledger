@@ -488,6 +488,14 @@ struct ChainResolver {
     pk: ProverKey<IrSource>,
     vk: VerifierKey,
     ir: IrSource,
+    /// `k` parameter the PK was generated for. Used to derive a
+    /// schema-versioned filename for the on-disk gzipped-PK cache.
+    k: u32,
+    /// Directory in which to persist the gzipped PK blob (typically
+    /// the same `MIDNIGHT_PP` cache dir holding the SRS files). When
+    /// `None`, `warm_pk_cache` recomputes the gzip every prove —
+    /// matches the pre-Proposal-3 behaviour.
+    pk_gz_cache_dir: Option<PathBuf>,
 }
 
 impl ResolverT for ChainResolver {
@@ -509,7 +517,23 @@ impl ResolverT for ChainResolver {
         // to serialise anyway. CPU-bounded (~hundreds of ms at k=18),
         // does not push peak RSS. Honest trade per the user's brief:
         // "we trade RAM for CPU".
-        let warmed = self.pk.warm_pk_cache()?;
+        // Proposal 3 (k21-plan): when a persistent cache dir is
+        // available, route through `warm_pk_cache_with_disk` so the
+        // deterministic gzip of `MidnightPK::write` is computed once
+        // per `(k, IR, SRS)` and reused from disk on every subsequent
+        // prove — saving ~hundreds of ms at k=18, multi-seconds at
+        // k=21. Filename embeds `PK_GZ_CACHE_SCHEMA_VERSION` so a
+        // future PK-layout change invalidates stale blobs cleanly.
+        let warmed = if let Some(dir) = &self.pk_gz_cache_dir {
+            let path = dir.join(format!(
+                "pk-gz-v{}-k{}.bin",
+                transient_crypto::proofs::PK_GZ_CACHE_SCHEMA_VERSION,
+                self.k,
+            ));
+            self.pk.warm_pk_cache_with_disk(&path)?
+        } else {
+            self.pk.warm_pk_cache()?
+        };
         tracing::info!(
             target: "midnight_bench",
             stage = "resolver.pk_cache_warmed",
@@ -644,7 +668,22 @@ where
     let keygen = kg_start.elapsed();
 
     bench_phase("bench.keygen.end", k);
-    let resolver = ChainResolver { pk, vk: vk.clone(), ir };
+    // Resolve the gzipped-PK cache dir. Prefer the explicit
+    // `opts.cache_dir`; fall back to the same `$MIDNIGHT_PP` /
+    // `$XDG_CACHE_HOME/midnight/zk-params` / `$HOME/.cache/midnight/zk-params`
+    // chain `MidnightDataProvider::new` uses, so the warm path lights
+    // up without callers having to forward `--cache-dir` everywhere.
+    #[cfg(not(target_arch = "wasm32"))]
+    let pk_gz_cache_dir = opts.cache_dir.clone().or_else(default_pk_gz_cache_dir);
+    #[cfg(target_arch = "wasm32")]
+    let pk_gz_cache_dir = opts.cache_dir.clone();
+    let resolver = ChainResolver {
+        pk,
+        vk: vk.clone(),
+        ir,
+        k,
+        pk_gz_cache_dir,
+    };
     bench_phase("bench.resolver_built", k);
 
     // 3) Prove.
@@ -724,6 +763,29 @@ fn make_preimage() -> ProofPreimage {
         communications_commitment: None,
         key_location: KeyLocation(std::borrow::Cow::Borrowed("contract-benchmark")),
     }
+}
+
+/// Mirror of `MidnightDataProvider::new`'s cache-dir resolution chain
+/// (`$MIDNIGHT_PP` → `$XDG_CACHE_HOME/midnight/zk-params` →
+/// `$HOME/.cache/midnight/zk-params`), so the on-disk gzipped-PK cache
+/// can light up even when the caller doesn't pass `--cache-dir`.
+/// Returns `None` only when none of those env vars are set.
+#[cfg(not(target_arch = "wasm32"))]
+fn default_pk_gz_cache_dir() -> Option<PathBuf> {
+    std::env::var_os("MIDNIGHT_PP")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("XDG_CACHE_HOME")
+                .map(|p| PathBuf::from(p).join("midnight").join("zk-params"))
+        })
+        .or_else(|| {
+            std::env::var_os("HOME").map(|p| {
+                PathBuf::from(p)
+                    .join(".cache")
+                    .join("midnight")
+                    .join("zk-params")
+            })
+        })
 }
 
 /// Filesystem-backed params resolver — uses the standard
