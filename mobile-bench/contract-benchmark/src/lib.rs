@@ -807,6 +807,88 @@ pub async fn keygen_for_k(k: u32, opts: &RunOpts) -> Result<()> {
     Ok(())
 }
 
+/// R6 — embedded `ProvingProvider.prove` equivalent.
+///
+/// Takes the same bytes the upstream `midnight-proof-server` /prove
+/// HTTP endpoint accepts (minus the versioned envelope — the TS
+/// adapter does the un-wrapping), runs the proof in-process, and
+/// returns the serialised proof bytes. This is the byte-for-byte
+/// drop-in replacement for the HTTP `proof-provider.prove` call
+/// from the Midnight TS SDK.
+///
+/// Wiring:
+///   - The TS host (`packages/react-native-prover/src/
+///     nativeProvingProvider.ts`) marshals the four byte-blobs from
+///     `ZKConfigProvider.{getZKIR, getProverKey, getVerifierKey}`
+///     plus the witness `ProofPreimage` from the upstream
+///     `createProvingPayload`.
+///   - This function deserialises them into typed Rust objects,
+///     reuses the existing `ChainResolver` machinery, and calls
+///     `preimage.prove::<IrSource>(...)`.
+///
+/// Inputs:
+///   `preimage_bytes`    — tagged-serialised `ProofPreimage`.
+///   `prover_key_bytes`  — tagged-serialised `ProverKey<IrSource>`.
+///   `verifier_key_bytes` — tagged-serialised `VerifierKey`.
+///   `zkir_bytes`        — tagged-serialised `IrSource`.
+///   `seed`              — RNG seed for prove. 0 = library default.
+///   `cache_dir`         — SRS cache dir (same MIDNIGHT_PP semantics
+///                          as the bench path). `None` = use the
+///                          resolver chain's default.
+///
+/// Output: serialised proof bytes (tagged_serialize of `Proof`).
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn circuit_prove_bytes(
+    preimage_bytes: &[u8],
+    prover_key_bytes: &[u8],
+    verifier_key_bytes: &[u8],
+    zkir_bytes: &[u8],
+    seed: u64,
+    cache_dir: Option<PathBuf>,
+) -> Result<Vec<u8>> {
+    use serialize::tagged_deserialize;
+
+    bench_phase("circuit_prove.start", 0);
+
+    let preimage: ProofPreimage = tagged_deserialize(&mut &preimage_bytes[..])
+        .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize preimage: {e}")))?;
+    let pk: ProverKey<IrSource> = tagged_deserialize(&mut &prover_key_bytes[..])
+        .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize prover_key: {e}")))?;
+    let vk: VerifierKey = tagged_deserialize(&mut &verifier_key_bytes[..])
+        .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize verifier_key: {e}")))?;
+    let ir: IrSource = tagged_deserialize(&mut &zkir_bytes[..])
+        .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize zkir: {e}")))?;
+
+    bench_phase("circuit_prove.deserialised", 0);
+
+    let params = make_zswap_resolver(cache_dir.as_deref())?;
+    let resolver = ChainResolver {
+        pk,
+        vk,
+        ir,
+        k: 0, // not used on the prove-only path (no gz-cache filename derivation)
+        pk_gz_cache_dir: cache_dir.clone(),
+    };
+
+    bench_phase("circuit_prove.prove.start", 0);
+
+    let seed = if seed == 0 { 0x42 } else { seed };
+    let mut rng = ChaCha20Rng::seed_from_u64(seed);
+    let (proof, _pi_skips) = preimage
+        .prove::<IrSource>(&mut rng, &params.0, &resolver)
+        .await
+        .map_err(|e| Error::Anyhow(anyhow::anyhow!("circuit_prove: {e}")))?;
+
+    bench_phase("circuit_prove.prove.end", 0);
+
+    let mut out = Vec::new();
+    tagged_serialize(&proof, &mut out)
+        .map_err(|e| Error::Anyhow(anyhow::anyhow!("serialize proof: {e}")))?;
+
+    bench_phase("circuit_prove.end", 0);
+    Ok(out)
+}
+
 fn make_preimage() -> ProofPreimage {
     ProofPreimage {
         inputs: vec![Fr::from(1u64)],
