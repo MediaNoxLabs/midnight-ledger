@@ -190,6 +190,14 @@ pub struct RunStats {
     pub verified: Option<bool>,
     /// Serialised proof size in bytes — small enough to log per-row.
     pub proof_bytes: usize,
+    /// SHA-256 of the tagged-serialised proof bytes (hex-encoded,
+    /// lowercase, no `0x`). Deterministic given `(k, seed, IR, PK,
+    /// SRS)`. The smoke-test pipeline uses this as the golden
+    /// test-vector identity to prove that prover optimisations
+    /// (zk patches, S1/S3/S5, par-iter, …) do not change the proof
+    /// bytes — see `docs/test-vectors/proof-vectors.json` and the
+    /// smoke-test `--check-vectors` mode.
+    pub proof_sha256_hex: String,
 }
 
 /// Optional knobs for `run_proof`.
@@ -706,11 +714,16 @@ where
     let prove = prove_start.elapsed();
     bench_phase("bench.prove.end", k);
 
-    let proof_bytes = {
+    let (proof_bytes, proof_sha256_hex) = {
+        use sha2::{Digest, Sha256};
         let mut buf = Vec::new();
         tagged_serialize(&proof, &mut buf)
             .map_err(|e| Error::Anyhow(anyhow::anyhow!("serialize proof: {e}")))?;
-        buf.len()
+        let digest = Sha256::digest(&buf);
+        // Lowercase hex, no `0x` prefix — easy to grep + diff against
+        // `docs/test-vectors/proof-vectors.json`.
+        let hex = digest.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+        (buf.len(), hex)
     };
 
     // 4) Verify (if eligible).
@@ -737,6 +750,7 @@ where
         verify: verify_dur,
         verified,
         proof_bytes,
+        proof_sha256_hex,
     })
 }
 

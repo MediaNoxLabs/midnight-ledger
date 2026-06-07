@@ -33,6 +33,14 @@ serialize = { path = "../../serialize", package = "midnight-serialize" }
 rand = { version = "0.8.4", features = ["getrandom"] }
 rand_chacha = "0.3.1"
 
+# SHA-256 of the serialised proof bytes — used as the per-(k, seed)
+# golden test-vector identity so any change in the prover pipeline
+# (zk patches, optimisations) is byte-exact verified against
+# `docs/test-vectors/proof-vectors.json`. Transitively present via
+# halo2; pin the same minor version (0.10) the rest of the graph
+# uses so we don't add a duplicate copy.
+sha2 = "0.10"
+
 # `Instant::now()` panics on `wasm32-unknown-unknown` because
 # the std `Instant` backend has no JS hook. `web-time` provides
 # an API-compatible drop-in that uses `std::time::Instant` on
