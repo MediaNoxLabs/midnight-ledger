@@ -883,13 +883,32 @@ pub async fn circuit_prove_bytes(
     zkir_bytes: &[u8],
     seed: u64,
     cache_dir: Option<PathBuf>,
+    binding_input_override: Option<&[u8]>,
 ) -> Result<Vec<u8>> {
     use serialize::tagged_deserialize;
 
     bench_phase("circuit_prove.start", 0);
 
-    let preimage: ProofPreimage = tagged_deserialize(&mut &preimage_bytes[..])
+    let mut preimage: ProofPreimage = tagged_deserialize(&mut &preimage_bytes[..])
         .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize preimage: {e}")))?;
+    // R10 — apply the fee-binding override, matching the upstream
+    // ProvingProvider::prove(preimage, Some(Fr)) semantics. The
+    // Midnight TS SDK passes this for every callTx so the wallet
+    // can bind transaction fees into the proof.
+    //
+    // Wire format: little-endian Fr bytes. We use Fr::from_le_bytes
+    // here (NOT Fr::deserialize via Serializable) because Fr's
+    // Serializable impl is SCALE-codec variable-length, not raw
+    // 32-byte LE. Matches the wallet-sdk-prover-client → zkir-wasm
+    // path which also uses Fr::from_le_bytes.
+    if let Some(bi_bytes) = binding_input_override {
+        let bi = Fr::from_le_bytes(bi_bytes).ok_or_else(|| {
+            Error::Anyhow(anyhow::anyhow!(
+                "binding_input_override out of range for the BLS scalar field"
+            ))
+        })?;
+        preimage.binding_input = bi;
+    }
     let pk: ProverKey<IrSource> = tagged_deserialize(&mut &prover_key_bytes[..])
         .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize prover_key: {e}")))?;
     let vk: VerifierKey = tagged_deserialize(&mut &verifier_key_bytes[..])
