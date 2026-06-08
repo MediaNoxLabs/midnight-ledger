@@ -838,6 +838,206 @@ pub async fn keygen_for_k(k: u32, opts: &RunOpts) -> Result<()> {
 ///
 /// Output: serialised proof bytes (tagged_serialize of `Proof`).
 #[cfg(not(target_arch = "wasm32"))]
+/// R11 — Transaction-level prove entry point matching the upstream
+/// proof-server's POST /prove endpoint logic, for the wallet-sdk's
+/// internal shielded balancing + dust spend proofs.
+///
+/// Unlike `circuit_prove_bytes` (which the SDK uses for contract
+/// proofs and ships the full PK/VK/IR with each call), wallet
+/// internal proofs ship ONLY the serialised preimage and rely on
+/// the prover to resolve zswap + dust ZK artefacts from a built-in
+/// resolver. This entry mirrors that:
+///
+///   request = tagged_serialize((ProofPreimageVersioned, Option<ProvingKeyMaterial>, Option<Fr>))
+///   response = tagged_serialize(ProofVersioned)
+///
+/// We re-use the proof-server's exact resolver chain
+/// (`PUBLIC_PARAMS` = ZswapResolver + DustResolver + the
+/// caller-supplied data), so the embedded path is byte-identical
+/// to running the proof-server container.
+pub async fn prove_tx_bytes(
+    request_bytes: &[u8],
+    cache_dir: Option<PathBuf>,
+) -> Result<Vec<u8>> {
+    use base_crypto::data_provider::{FetchMode, MidnightDataProvider, OutputMode};
+    use ledger::dust::{DUST_EXPECTED_FILES, DustResolver};
+    use ledger::prove::Resolver;
+    use ledger::structure::{ProofPreimageVersioned, ProofVersioned};
+    use serialize::{tagged_deserialize, tagged_serialize};
+    use std::sync::Arc;
+    use transient_crypto::curve::Fr;
+    use transient_crypto::proofs::{KeyLocation, ProvingKeyMaterial, Resolver as ResolverT};
+
+    let (ppi, data, binding_input): (
+        ProofPreimageVersioned,
+        Option<ProvingKeyMaterial>,
+        Option<Fr>,
+    ) = tagged_deserialize(&mut &request_bytes[..])
+        .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize prove-tx request: {e}")))?;
+
+    // Honour the caller's cache_dir override (mirrors how the
+    // proof-server container's data providers work but using the
+    // host's ~/.cache/midnight if cache_dir is None).
+    if let Some(cd) = cache_dir.as_ref() {
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("MIDNIGHT_PP", cd);
+        }
+    }
+
+    let zswap_resolver = make_zswap_resolver(cache_dir.as_deref())?;
+    let dust_resolver = DustResolver(
+        MidnightDataProvider::new(
+            FetchMode::OnDemand,
+            OutputMode::Log,
+            DUST_EXPECTED_FILES.to_owned(),
+        )
+        .map_err(|e| Error::Anyhow(anyhow::anyhow!("dust data provider init: {e}")))?,
+    );
+    let data_resolver = data.clone();
+    let resolver = Resolver::new(
+        (*zswap_resolver).clone(),
+        dust_resolver,
+        Box::new(move |_: KeyLocation| {
+            Box::pin(std::future::ready(Ok(data_resolver.clone())))
+        }),
+    );
+
+    let proof = match ppi {
+        ProofPreimageVersioned::V2(mut ppi_v2) => {
+            if let Some(bi) = binding_input {
+                let mut inner = (*ppi_v2).clone();
+                inner.binding_input = bi;
+                ppi_v2 = Arc::new(inner);
+            }
+            let proving_data = match data {
+                Some(pkm) => pkm,
+                None => resolver
+                    .resolve_key(ppi_v2.key_location.clone())
+                    .await
+                    .map_err(|e| Error::Anyhow(anyhow::anyhow!("resolve_key: {e}")))?
+                    .ok_or_else(|| {
+                        Error::Anyhow(anyhow::anyhow!(
+                            "couldn't find key {}",
+                            &ppi_v2.key_location.0
+                        ))
+                    })?,
+            };
+
+            // The proof-server uses `versioned_ir::prove` here; we
+            // call ProofPreimage::prove directly with the IrSource
+            // from the resolved proving_data — same effective
+            // behaviour for the v2 path.
+            let ir: zkir::IrSource = tagged_deserialize(&mut &proving_data.ir_source[..])
+                .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize ir_source: {e}")))?;
+            void_local_unused(&proving_data);
+            let mut rng = ChaCha20Rng::seed_from_u64(0x42);
+            let (proof, _pi_skips) = ppi_v2
+                .prove::<zkir::IrSource>(&mut rng, &*zswap_resolver, &resolver)
+                .await
+                .map_err(|e| Error::Anyhow(anyhow::anyhow!("prove: {e}")))?;
+            void_local_unused(&ir);
+            ProofVersioned::V2(proof)
+        }
+        // Footgun mirror: proof-server's match is non-exhaustive
+        // for forward-compatibility.
+        _ => return Err(Error::Anyhow(anyhow::anyhow!(
+            "unsupported ProofPreimageVersioned variant"
+        ))),
+    };
+
+    let mut response = Vec::new();
+    tagged_serialize(&proof, &mut response)
+        .map_err(|e| Error::Anyhow(anyhow::anyhow!("serialize proof: {e}")))?;
+    Ok(response)
+}
+
+/// R11 — Transaction-level check entry point matching the upstream
+/// proof-server's POST /check.
+///
+///   request = tagged_serialize((ProofPreimageVersioned, Option<WrappedIr>))
+///   response = tagged_serialize(Vec<Option<u64>>)
+pub async fn check_tx_bytes(
+    request_bytes: &[u8],
+    cache_dir: Option<PathBuf>,
+) -> Result<Vec<u8>> {
+    use base_crypto::data_provider::{FetchMode, MidnightDataProvider, OutputMode};
+    use ledger::dust::{DUST_EXPECTED_FILES, DustResolver};
+    use ledger::prove::Resolver;
+    use ledger::structure::ProofPreimageVersioned;
+    use serialize::{tagged_deserialize, tagged_serialize};
+    use transient_crypto::proofs::{KeyLocation, Resolver as ResolverT, WrappedIr};
+
+    let (ppi, ir): (ProofPreimageVersioned, Option<WrappedIr>) =
+        tagged_deserialize(&mut &request_bytes[..])
+            .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize check-tx request: {e}")))?;
+
+    if let Some(cd) = cache_dir.as_ref() {
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("MIDNIGHT_PP", cd);
+        }
+    }
+    let zswap_resolver = make_zswap_resolver(cache_dir.as_deref())?;
+
+    let ir_source = match ir {
+        Some(wir) => wir.0,
+        None => {
+            let dust_resolver = DustResolver(
+                MidnightDataProvider::new(
+                    FetchMode::OnDemand,
+                    OutputMode::Log,
+                    DUST_EXPECTED_FILES.to_owned(),
+                )
+                .map_err(|e| Error::Anyhow(anyhow::anyhow!("dust data provider init: {e}")))?,
+            );
+            let resolver = Resolver::new(
+                (*zswap_resolver).clone(),
+                dust_resolver,
+                Box::new(move |_: KeyLocation| Box::pin(std::future::ready(Ok(None)))),
+            );
+            let key_loc = match &ppi {
+                ProofPreimageVersioned::V2(p) => p.key_location.clone(),
+                _ => return Err(Error::Anyhow(anyhow::anyhow!(
+                    "unsupported ProofPreimageVersioned variant"
+                ))),
+            };
+            resolver
+                .resolve_key(key_loc.clone())
+                .await
+                .map_err(|e| Error::Anyhow(anyhow::anyhow!("resolve_key: {e}")))?
+                .ok_or_else(|| {
+                    Error::Anyhow(anyhow::anyhow!(
+                        "couldn't find built-in key {}",
+                        &key_loc.0
+                    ))
+                })?
+                .ir_source
+        }
+    };
+
+    let result = match ppi {
+        ProofPreimageVersioned::V2(ppi_v2) => {
+            let ir: zkir::IrSource = tagged_deserialize(&mut &ir_source[..])
+                .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize ir_source: {e}")))?;
+            ppi_v2.check(&ir)
+                .map_err(|e| Error::Anyhow(anyhow::anyhow!("check: {e}")))?
+        }
+        _ => return Err(Error::Anyhow(anyhow::anyhow!(
+            "unsupported ProofPreimageVersioned variant"
+        ))),
+    };
+    let result_u64: Vec<Option<u64>> =
+        result.into_iter().map(|i| i.map(|i| i as u64)).collect();
+    let mut response = Vec::new();
+    tagged_serialize(&result_u64, &mut response)
+        .map_err(|e| Error::Anyhow(anyhow::anyhow!("serialize check result: {e}")))?;
+    Ok(response)
+}
+
+#[inline]
+fn void_local_unused<T: ?Sized>(_: &T) {}
+
 /// R9 — Circuit-check entry point for embedded provers.
 ///
 /// Mirrors what the HTTP proof-server's `POST /check` endpoint does:

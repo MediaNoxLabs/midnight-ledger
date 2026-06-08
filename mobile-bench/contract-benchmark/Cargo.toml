@@ -28,6 +28,13 @@ base-crypto = { path = "../../base-crypto", package = "midnight-base-crypto" }
 zswap = { path = "../../zswap", package = "midnight-zswap" }
 serialize = { path = "../../serialize", package = "midnight-serialize" }
 
+# R11 — wallet-internal tx-level prove/check needs the ledger
+# crate's prove::Resolver + dust::DustResolver + structure::
+# ProofPreimageVersioned to mirror the proof-server's endpoint
+# logic. Adds ~1 transitive crate's worth of compile time but
+# unlocks dropping the proof-server container.
+ledger = { path = "../../ledger", package = "midnight-ledger" }
+
 # RNG common to every target. Tokio is split into per-target
 # blocks below — wasm32 doesn't support the multi-thread runtime.
 rand = { version = "0.8.4", features = ["getrandom"] }
