@@ -838,6 +838,44 @@ pub async fn keygen_for_k(k: u32, opts: &RunOpts) -> Result<()> {
 ///
 /// Output: serialised proof bytes (tagged_serialize of `Proof`).
 #[cfg(not(target_arch = "wasm32"))]
+/// R9 — Circuit-check entry point for embedded provers.
+///
+/// Mirrors what the HTTP proof-server's `POST /check` endpoint does:
+/// deserialise the preimage + zkir, run the witness-generation
+/// validation step, and return the `pi_skips` vector (which slots
+/// of the public-inputs vector are derived vs unset).
+///
+/// The Midnight TS SDK's `createProofProvider` calls `.check` before
+/// `.prove` for every transaction. Without this entry the embedded
+/// (in-process) prover path can't claim full ProvingProvider
+/// compatibility — callers would have to bypass the SDK's standard
+/// flow. With it, swapping `httpClientProofProvider` for
+/// `nativeProvingProvider(zkConfigProvider)` is a single-line drop-in.
+///
+/// Returns one entry per public-input slot. `Some(i)` means the slot
+/// is bound to witness index `i`; `None` means the slot is skipped
+/// (no witness binding, value comes from the public transcript).
+pub fn circuit_check_bytes(
+    preimage_bytes: &[u8],
+    zkir_bytes: &[u8],
+) -> Result<Vec<Option<usize>>> {
+    use serialize::tagged_deserialize;
+    use transient_crypto::proofs::ProofPreimage;
+    use zkir::IrSource;
+
+    let preimage: ProofPreimage = tagged_deserialize(&mut &preimage_bytes[..])
+        .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize preimage: {e}")))?;
+    let ir: IrSource = tagged_deserialize(&mut &zkir_bytes[..])
+        .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize zkir: {e}")))?;
+
+    // ProofPreimage::check is sync — no params/resolver needed, just
+    // the witness-generation check that runs locally. Same code path
+    // as the upstream HTTP /check.
+    preimage
+        .check(&ir)
+        .map_err(|e| Error::Anyhow(anyhow::anyhow!("circuit_check: {e}")))
+}
+
 pub async fn circuit_prove_bytes(
     preimage_bytes: &[u8],
     prover_key_bytes: &[u8],
