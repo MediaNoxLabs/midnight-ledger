@@ -348,6 +348,73 @@ pub struct BlockContext {
 }
 tag_enforcement_test!(BlockContext);
 
+/// Serialize a tuple-keyed map as a JSON sequence of `[key, value]` pairs
+/// rather than an object. Neither `serde_json` nor `serde_wasm_bindgen` can
+/// encode a non-string map key as a JSON object key, so a non-empty
+/// `claimed_unshielded_spends` (keyed by `(SerdeTokenType, SerdePublicAddress)`)
+/// would otherwise fail to serialize at all (`KeyMustBeAString`). The
+/// `deserialize` half accepts BOTH the new seq form and a legacy object (only
+/// ever empty for a tuple-keyed map, but tolerated generally), so the wasm/web
+/// backend (`serde_wasm_bindgen::from_value`) and any previously-serialized
+/// empty `{}` keep working.
+mod map_seq_compat {
+    use std::collections::HashMap;
+    use std::fmt;
+    use std::hash::Hash;
+    use std::marker::PhantomData;
+
+    use serde::de::{Deserializer, MapAccess, SeqAccess, Visitor};
+    use serde::ser::{SerializeSeq, Serializer};
+    use serde::{Deserialize, Serialize};
+
+    pub(super) fn serialize<K, V, S>(map: &HashMap<K, V>, ser: S) -> Result<S::Ok, S::Error>
+    where
+        K: Serialize,
+        V: Serialize,
+        S: Serializer,
+    {
+        let mut seq = ser.serialize_seq(Some(map.len()))?;
+        for (k, v) in map {
+            seq.serialize_element(&(k, v))?;
+        }
+        seq.end()
+    }
+
+    pub(super) fn deserialize<'de, K, V, D>(de: D) -> Result<HashMap<K, V>, D::Error>
+    where
+        K: Deserialize<'de> + Eq + Hash,
+        V: Deserialize<'de>,
+        D: Deserializer<'de>,
+    {
+        struct SeqOrMap<K, V>(PhantomData<(K, V)>);
+        impl<'de, K, V> Visitor<'de> for SeqOrMap<K, V>
+        where
+            K: Deserialize<'de> + Eq + Hash,
+            V: Deserialize<'de>,
+        {
+            type Value = HashMap<K, V>;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a sequence of [key, value] pairs (or a legacy empty object)")
+            }
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let mut map = HashMap::new();
+                while let Some((k, v)) = seq.next_element::<(K, V)>()? {
+                    map.insert(k, v);
+                }
+                Ok(map)
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut m: A) -> Result<Self::Value, A::Error> {
+                let mut map = HashMap::new();
+                while let Some((k, v)) = m.next_entry::<K, V>()? {
+                    map.insert(k, v);
+                }
+                Ok(map)
+            }
+        }
+        de.deserialize_any(SeqOrMap(PhantomData))
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SerdeEffects {
@@ -359,7 +426,53 @@ struct SerdeEffects {
     unshielded_mints: HashMap<String, u64>,
     unshielded_inputs: HashMap<SerdeTokenType, u128>,
     unshielded_outputs: HashMap<SerdeTokenType, u128>,
+    // Tuple-keyed: serialized as a seq of `[[ttHex, addrHex], value]` (see
+    // `map_seq_compat`) so a non-empty map doesn't hit `KeyMustBeAString`.
+    #[serde(with = "map_seq_compat")]
     claimed_unshielded_spends: HashMap<(SerdeTokenType, SerdePublicAddress), u128>,
+}
+
+#[cfg(test)]
+mod claimed_unshielded_spends_serde_tests {
+    use std::collections::HashMap;
+
+    // Mirror the (tuple-key, u128) shape with String tuples — a serde_json
+    // object can't hold a tuple key, so the seq form is what makes a non-empty
+    // `claimed_unshielded_spends` serializable at all. Exercises the same
+    // `map_seq_compat` codec the real field uses.
+    #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+    struct Wrap {
+        #[serde(with = "super::map_seq_compat")]
+        m: HashMap<(String, String), u128>,
+    }
+
+    #[test]
+    fn non_empty_tuple_key_round_trips_as_seq() {
+        let mut m = HashMap::new();
+        m.insert(("tt".to_string(), "addr".to_string()), 42u128);
+        let w = Wrap { m };
+        let json = serde_json::to_string(&w).expect("a tuple-keyed map must serialize (as a seq)");
+        assert!(
+            json.contains(r#"[["tt","addr"],42]"#),
+            "expected a seq of [key,value] pairs, got {json}"
+        );
+        let back: Wrap = serde_json::from_str(&json).expect("the seq form round-trips");
+        assert_eq!(w, back);
+    }
+
+    #[test]
+    fn legacy_empty_object_still_deserializes() {
+        // Pre-change an empty map serialized as `{}`; the dual-shape deserialize
+        // (and the wasm backend's empty JS Map) must still load to an empty map.
+        let w: Wrap = serde_json::from_str(r#"{"m":{}}"#).expect("legacy empty object");
+        assert!(w.m.is_empty());
+    }
+
+    #[test]
+    fn empty_seq_deserializes() {
+        let w: Wrap = serde_json::from_str(r#"{"m":[]}"#).expect("empty seq");
+        assert!(w.m.is_empty());
+    }
 }
 
 impl<D: DB> From<Effects<D>> for SerdeEffects {
