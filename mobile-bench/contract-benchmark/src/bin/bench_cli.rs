@@ -60,7 +60,7 @@ fn main() {
 // arm64-android, k=18) this drops peak HWM by ~60 MiB (-2.7%)
 // and post-prove RSS by ~290 MiB. Recommended for memory-
 // pressured scenarios; set `MIMALLOC_PURGE_DELAY=10000`
-// (default) to restore the pooling behaviour if CPU cost is
+// (default) to restore the pooling behavior if CPU cost is
 // preferred over RAM.
 #[cfg(not(target_arch = "wasm32"))]
 #[global_allocator]
@@ -276,7 +276,7 @@ fn proc_rss_mb() -> Option<u64> {
 /// mark of resident pages.
 ///
 /// On Linux/Android `ru_maxrss` is **kilobytes**. On macOS / iOS
-/// it's **bytes** (deviation from POSIX; documented behaviour).
+/// it's **bytes** (deviation from POSIX; documented behavior).
 /// We normalise to MiB.
 ///
 /// Why this matters: `proc_rss_mb()` is sampled *after* each
@@ -290,7 +290,7 @@ fn proc_rss_mb() -> Option<u64> {
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
 fn proc_peak_rss_mb() -> Option<u64> {
     // SAFETY: getrusage with RUSAGE_SELF + zero-init struct is
-    // defined POSIX behaviour; we ignore the return value's
+    // defined POSIX behavior; we ignore the return value's
     // semantic checks and only read ru_maxrss on success.
     let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
     let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };

@@ -82,7 +82,7 @@ pub const MIN_K: u32 = 1;
 pub const MAX_VERIFIABLE_K: u32 = 14;
 
 /// Highest `k` at which we still call `ir.model()` to verify the
-/// realised row count matches the target.
+/// realized row count matches the target.
 ///
 /// `ir.model()` invokes halo2's `cost_model_options`, which
 /// synthesises the circuit into a `DevAssembly` whose `assign_fixed`
@@ -119,7 +119,7 @@ pub const COST_MODEL_SAFE_K: u32 = 17;
 pub const HASHES_FOR_K: [u32; (MAX_K + 1) as usize] = [
     0,      // k=0 — unused
     0,      // k=1 — minimal assert, no hash chain
-    1,      // k=2..5 — hash count floors at 1 (k_realised clamps up)
+    1,      // k=2..5 — hash count floors at 1 (k_realized clamps up)
     1,      // k=3
     1,      // k=4
     1,      // k=5
@@ -176,7 +176,7 @@ pub struct RunStats {
     /// halo2-cost-model row count (not counting lookups / custom gates).
     pub rows: u64,
     /// Time spent in `IrSource::keygen` — proving + verifying key
-    /// generation. Amortised across calls if the caller caches keys
+    /// generation. Amortized across calls if the caller caches keys
     /// (this crate does *not* cache; each `run_proof` regenerates so
     /// timings are reproducible for a clean run).
     pub keygen: Duration,
@@ -188,9 +188,9 @@ pub struct RunStats {
     pub verify: Option<Duration>,
     /// Whether the verification succeeded. `None` if not attempted.
     pub verified: Option<bool>,
-    /// Serialised proof size in bytes — small enough to log per-row.
+    /// Serialized proof size in bytes — small enough to log per-row.
     pub proof_bytes: usize,
-    /// SHA-256 of the tagged-serialised proof bytes (hex-encoded,
+    /// SHA-256 of the tagged-serialized proof bytes (hex-encoded,
     /// lowercase, no `0x`). Deterministic given `(k, seed, IR, PK,
     /// SRS)`. The smoke-test pipeline uses this as the golden
     /// test-vector identity to prove that prover optimisations
@@ -281,7 +281,7 @@ fn ir_cache_store(target_k: u32, value: (IrSource, u32)) {
 /// Process-wide cache of `(ProverKey, VerifierKey)` per `k`.
 ///
 /// Keygen is deterministic in `(SRS, IR)`: same `k` → same circuit
-/// shape (because `build_ir_for_k` is itself memoised) → same key
+/// shape (because `build_ir_for_k` is itself memoized) → same key
 /// pair. Once we've paid for it once at a given `k`, every later
 /// prove at the same `k` can skip straight to `prove()`.
 ///
@@ -405,7 +405,7 @@ fn build_ir_for_k_uncached(target_k: u32) -> Result<(IrSource, u32)> {
         if got_k >= target_k {
             // Step back down if we vastly overshot — keeps proving cost
             // close to the requested k. We accept the first n where the
-            // realised k equals the target.
+            // realized k equals the target.
             return shrink_to_target(n, target_k).or_else(|_| Ok((ir, n)));
         }
         // Double and try again. Capped at u32 to avoid pathological
@@ -507,7 +507,7 @@ struct ChainResolver {
     /// Directory in which to persist the gzipped PK blob (typically
     /// the same `MIDNIGHT_PP` cache dir holding the SRS files). When
     /// `None`, `warm_pk_cache` recomputes the gzip every prove —
-    /// matches the pre-Proposal-3 behaviour.
+    /// matches the pre-Proposal-3 behavior.
     pk_gz_cache_dir: Option<PathBuf>,
 }
 
@@ -555,7 +555,7 @@ impl ResolverT for ChainResolver {
         let mut prover_key = Vec::new();
         tagged_serialize(&self.pk, &mut prover_key)?;
         let prover_len = prover_key.len();
-        bench_phase("resolver.pk_serialised", 0);
+        bench_phase("resolver.pk_serialized", 0);
         tracing::info!(
             target: "midnight_bench",
             stage = "resolver.pk_bytes",
@@ -563,7 +563,7 @@ impl ResolverT for ChainResolver {
         );
         let mut verifier_key = Vec::new();
         tagged_serialize(&self.vk, &mut verifier_key)?;
-        bench_phase("resolver.vk_serialised", 0);
+        bench_phase("resolver.vk_serialized", 0);
         let mut ir_source = Vec::new();
         tagged_serialize(&self.ir, &mut ir_source)?;
         bench_phase("resolver.resolve_key.end", 0);
@@ -646,7 +646,7 @@ where
     // based on the chain length.
     let (realized_k, rows) = if k > COST_MODEL_SAFE_K {
         // Per the `every_k_builds` test, `HASHES_FOR_K` builds an
-        // IR whose realised k equals the target k for k in 1..=MAX_K.
+        // IR whose realized k equals the target k for k in 1..=MAX_K.
         // Approximate row count from the hash chain length —
         // empirically ~5 halo2 rows per transient_hash op plus
         // sub-2× overhead from the assertion / public-input cells.
@@ -812,7 +812,7 @@ pub async fn keygen_for_k(k: u32, opts: &RunOpts) -> Result<()> {
 /// Takes the same bytes the upstream `midnight-proof-server` /prove
 /// HTTP endpoint accepts (minus the versioned envelope — the TS
 /// adapter does the un-wrapping), runs the proof in-process, and
-/// returns the serialised proof bytes. This is the byte-for-byte
+/// returns the serialized proof bytes. This is the byte-for-byte
 /// drop-in replacement for the HTTP `proof-provider.prove` call
 /// from the Midnight TS SDK.
 ///
@@ -827,16 +827,16 @@ pub async fn keygen_for_k(k: u32, opts: &RunOpts) -> Result<()> {
 ///     `preimage.prove::<IrSource>(...)`.
 ///
 /// Inputs:
-///   `preimage_bytes`    — tagged-serialised `ProofPreimage`.
-///   `prover_key_bytes`  — tagged-serialised `ProverKey<IrSource>`.
-///   `verifier_key_bytes` — tagged-serialised `VerifierKey`.
-///   `zkir_bytes`        — tagged-serialised `IrSource`.
+///   `preimage_bytes`    — tagged-serialized `ProofPreimage`.
+///   `prover_key_bytes`  — tagged-serialized `ProverKey<IrSource>`.
+///   `verifier_key_bytes` — tagged-serialized `VerifierKey`.
+///   `zkir_bytes`        — tagged-serialized `IrSource`.
 ///   `seed`              — RNG seed for prove. 0 = library default.
 ///   `cache_dir`         — SRS cache dir (same MIDNIGHT_PP semantics
 ///                          as the bench path). `None` = use the
 ///                          resolver chain's default.
 ///
-/// Output: serialised proof bytes (tagged_serialize of `Proof`).
+/// Output: serialized proof bytes (tagged_serialize of `Proof`).
 #[cfg(not(target_arch = "wasm32"))]
 /// R11 — Transaction-level prove entry point matching the upstream
 /// proof-server's POST /prove endpoint logic, for the wallet-sdk's
@@ -844,7 +844,7 @@ pub async fn keygen_for_k(k: u32, opts: &RunOpts) -> Result<()> {
 ///
 /// Unlike `circuit_prove_bytes` (which the SDK uses for contract
 /// proofs and ships the full PK/VK/IR with each call), wallet
-/// internal proofs ship ONLY the serialised preimage and rely on
+/// internal proofs ship ONLY the serialized preimage and rely on
 /// the prover to resolve zswap + dust ZK artefacts from a built-in
 /// resolver. This entry mirrors that:
 ///
@@ -927,7 +927,7 @@ pub async fn prove_tx_bytes(
             // The proof-server uses `versioned_ir::prove` here; we
             // call ProofPreimage::prove directly with the IrSource
             // from the resolved proving_data — same effective
-            // behaviour for the v2 path.
+            // behavior for the v2 path.
             let ir: zkir::IrSource = tagged_deserialize(&mut &proving_data.ir_source[..])
                 .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize ir_source: {e}")))?;
             void_local_unused(&proving_data);
@@ -1116,7 +1116,7 @@ pub async fn circuit_prove_bytes(
     let ir: IrSource = tagged_deserialize(&mut &zkir_bytes[..])
         .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize zkir: {e}")))?;
 
-    bench_phase("circuit_prove.deserialised", 0);
+    bench_phase("circuit_prove.deserialized", 0);
 
     let params = make_zswap_resolver(cache_dir.as_deref())?;
     let resolver = ChainResolver {
@@ -1205,7 +1205,7 @@ fn make_zswap_resolver(cache_dir: Option<&std::path::Path>) -> Result<Arc<ZswapR
     // around), and the operator pre-pushes the required SRS files
     // with `adb push` before kicking off the run. Production
     // RN/iOS prove paths leave the env var unset and keep the
-    // existing `OnDemand` behaviour.
+    // existing `OnDemand` behavior.
     let no_fetch = matches!(
         std::env::var("MIDNIGHT_NO_FETCH").as_deref(),
         Ok("1") | Ok("true"),
@@ -1228,13 +1228,13 @@ mod tests {
     use super::*;
 
     /// Sanity-check: every `k` in 1..=MAX_K builds a valid IR. Prints
-    /// the realised k / row count / chain length so we can document
-    /// the realised distribution in the README. Some low-k targets are
-    /// naturally floored by halo2 baseline overhead (min realised k is
+    /// the realized k / row count / chain length so we can document
+    /// the realized distribution in the README. Some low-k targets are
+    /// naturally floored by halo2 baseline overhead (min realized k is
     /// observed empirically and recorded in `EFFECTIVE_FLOOR_K`).
     #[test]
     fn every_k_builds() {
-        let mut last_realised: u32 = 0;
+        let mut last_realized: u32 = 0;
         for k in MIN_K..=MAX_K {
             let (ir, chain) = build_ir_for_k(k).unwrap_or_else(|e| {
                 panic!("k={k} failed to build: {e:?}");
@@ -1242,15 +1242,15 @@ mod tests {
             let got = ir.model().k() as u32;
             let rows = ir.model().rows();
             eprintln!(
-                "k={k:>2}: realised={got:>2} chain={chain:>8} rows={rows}"
+                "k={k:>2}: realized={got:>2} chain={chain:>8} rows={rows}"
             );
             // Realised k must be monotonically non-decreasing in k —
             // requesting a bigger circuit never produces a smaller one.
             assert!(
-                got >= last_realised,
-                "k={k}: realised k={got} regressed from prior {last_realised}"
+                got >= last_realized,
+                "k={k}: realized k={got} regressed from prior {last_realized}"
             );
-            last_realised = got;
+            last_realized = got;
         }
     }
 
