@@ -45,7 +45,7 @@ use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use std::{any::Any, cmp::Ordering};
 use std::{borrow::Cow, num::NonZeroUsize};
-use std::{fmt::Debug, io::Seek};
+use std::fmt::Debug;
 use storage_core::Storable;
 use storage_core::arena::ArenaKey;
 use storage_core::db::DB;
