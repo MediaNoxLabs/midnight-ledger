@@ -88,6 +88,25 @@
           ./generate-cost-model
           ./rustfmt.toml
           ./wasm-proving-demos/zkir-mt
+          # The three `mobile-bench` crates are `[workspace] members` in
+          # Cargo.toml, and this filter is an allowlist — so omitting them
+          # made every nix build fail at manifest load:
+          #
+          #   failed to load manifest for workspace member
+          #   `/build/inclusive/mobile-bench/prover-core`
+          #
+          # Cargo resolves the whole workspace before building anything, so
+          # a member missing from the source closure breaks derivations that
+          # do not depend on it at all — which is why `zkir-v3-static` and
+          # the test artifacts were failing.
+          #
+          # Listing them here is the minimal fix. The better shape is for
+          # benchmark crates not to be members of the library workspace at
+          # all, but that carries a real hazard — a separate workspace needs
+          # its own `[patch.crates-io]`, and getting that wrong silently
+          # drops the patched midnight-proofs — so it is tracked separately
+          # rather than bundled in here.
+          ./mobile-bench
         ];
         rust = fenix.packages.${system};
         # Temporary until 0.22.0 is in nixpkgs, as this is required to parse
