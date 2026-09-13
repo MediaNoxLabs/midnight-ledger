@@ -37,6 +37,7 @@ use serialize::{
 };
 #[cfg(feature = "proptest")]
 use serialize::{NoStrategy, simple_arbitrary};
+use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::io::{self, Read, Seek};
@@ -45,7 +46,6 @@ use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use std::{any::Any, cmp::Ordering};
 use std::{borrow::Cow, num::NonZeroUsize};
-use std::fmt::Debug;
 use storage_core::Storable;
 use storage_core::arena::ArenaKey;
 use storage_core::db::DB;
@@ -67,49 +67,64 @@ impl ParamsProverProvider for base_crypto::data_provider::MidnightDataProvider {
     async fn get_params(&self, k: u8) -> io::Result<ParamsProver> {
         let name = Self::name_k(k);
 
-        // Path A — mmap companion if present. The companion is a
-        // `bls_midnight_2pN.mmap` file produced by
-        // `ParamsProver::write_mmap_companion` (typically built once
-        // on a roomy desktop and pushed to the device). When found
-        // we go zero-copy: `ParamsKZG.g`/`g_lagrange` become slice
-        // views into the file mapping and the OS pages handle
-        // eviction under memory pressure. Trigger is file presence,
-        // not an env var, so the optimisation lights up
-        // automatically wherever the companion is shipped.
-        let mmap_path = self.dir.join(format!("{name}.mmap"));
-        if mmap_path.exists() {
-            tracing::info!(
-                target: "midnight_bench",
-                stage = "load_mmap",
-                k = k as u64,
-            );
-            return ParamsProver::read_mmap_path(&mmap_path);
-        }
+        // Paths A and A' are the mmap companion fast paths, and they
+        // exist only where `mmap(2)` does. Both are `return`s, so a
+        // target without them simply falls through to Path B below —
+        // which is a real path producing identical parameters, not a
+        // stub. Slower, and that is the correct trade for a target
+        // that cannot map a file at all.
+        //
+        // Gated as one block rather than per-statement: this is the
+        // whole host-only region, and splitting it would scatter `cfg`
+        // through a function whose shape is otherwise portable.
+        #[cfg(not(target_family = "wasm"))]
+        {
+            // Path A — mmap companion if present. The companion is a
+            // `bls_midnight_2pN.mmap` file produced by
+            // `ParamsProver::write_mmap_companion` (typically built once
+            // on a roomy desktop and pushed to the device). When found
+            // we go zero-copy: `ParamsKZG.g`/`g_lagrange` become slice
+            // views into the file mapping and the OS pages handle
+            // eviction under memory pressure. Trigger is file presence,
+            // not an env var, so the optimisation lights up
+            // automatically wherever the companion is shipped.
+            let mmap_path = self.dir.join(format!("{name}.mmap"));
+            if mmap_path.exists() {
+                tracing::info!(
+                    target: "midnight_bench",
+                    stage = "load_mmap",
+                    k = k as u64,
+                );
+                return ParamsProver::read_mmap_path(&mmap_path);
+            }
 
-        // Path A' — build the companion on first miss. Opt-in via
-        // `MIDNIGHT_MMAP_BUILD=1` because the build step briefly
-        // pays the 2× eager-load peak (we hold the just-parsed
-        // `ParamsProver` AND write its bytes out). Useful as a
-        // one-shot precompute on a desktop; the device should just
-        // ship the resulting `.mmap` files.
-        let want_build =
-            matches!(std::env::var("MIDNIGHT_MMAP_BUILD").as_deref(), Ok("1") | Ok("true"));
-        if want_build {
-            tracing::info!(
-                target: "midnight_bench",
-                stage = "build_mmap_companion",
-                k = k as u64,
+            // Path A' — build the companion on first miss. Opt-in via
+            // `MIDNIGHT_MMAP_BUILD=1` because the build step briefly
+            // pays the 2× eager-load peak (we hold the just-parsed
+            // `ParamsProver` AND write its bytes out). Useful as a
+            // one-shot precompute on a desktop; the device should just
+            // ship the resulting `.mmap` files.
+            let want_build = matches!(
+                std::env::var("MIDNIGHT_MMAP_BUILD").as_deref(),
+                Ok("1") | Ok("true")
             );
-            let reader = self
-                .get_file(
-                    &name,
-                    &format!("public parameters for k={k} not found in cache"),
-                )
-                .await?;
-            let eager = ParamsProver::read(reader)?;
-            eager.write_mmap_companion(&mmap_path)?;
-            drop(eager);
-            return ParamsProver::read_mmap_path(&mmap_path);
+            if want_build {
+                tracing::info!(
+                    target: "midnight_bench",
+                    stage = "build_mmap_companion",
+                    k = k as u64,
+                );
+                let reader = self
+                    .get_file(
+                        &name,
+                        &format!("public parameters for k={k} not found in cache"),
+                    )
+                    .await?;
+                let eager = ParamsProver::read(reader)?;
+                eager.write_mmap_companion(&mmap_path)?;
+                drop(eager);
+                return ParamsProver::read_mmap_path(&mmap_path);
+            }
         }
 
         // Path B — eager `read_custom` (default) or seekable
@@ -123,8 +138,10 @@ impl ParamsProverProvider for base_crypto::data_provider::MidnightDataProvider {
                 &format!("public parameters for k={k} not found in cache"),
             )
             .await?;
-        let want_lazy =
-            matches!(std::env::var("MIDNIGHT_LAZY_PARAMS").as_deref(), Ok("1") | Ok("true"));
+        let want_lazy = matches!(
+            std::env::var("MIDNIGHT_LAZY_PARAMS").as_deref(),
+            Ok("1") | Ok("true")
+        );
         if want_lazy {
             ParamsProver::read_lazy(reader)
         } else {
@@ -166,7 +183,12 @@ impl ParamsProver {
     /// when FFT scratch dominates and the SRS is referenced only
     /// at the MSM call sites.
     ///
-    /// Available only against the patched `midnight-proofs` fork.
+    /// Available only against the patched `midnight-proofs` fork, and
+    /// only on targets that have `mmap(2)`. On wasm the method is
+    /// absent rather than failing at runtime: `read_mmap_arc` is itself
+    /// behind the fork's `mmap` feature there, so calling this could
+    /// never have worked.
+    #[cfg(not(target_family = "wasm"))]
     pub fn read_mmap_path<P: AsRef<std::path::Path>>(path: P) -> io::Result<Self> {
         let file = std::fs::File::open(path)?;
         // SAFETY: read-only mmap of a file we just opened. memmap2's
@@ -183,6 +205,11 @@ impl ParamsProver {
     /// Write the current params out to a companion file ready for
     /// `read_mmap_path`. Use after a one-time eager `read` to
     /// produce the file we then mmap on every subsequent run.
+    ///
+    /// Host-only for the same reason as [`read_mmap_path`](Self::read_mmap_path):
+    /// writing a companion nothing on this target can map back is not a
+    /// useful thing to be able to do.
+    #[cfg(not(target_family = "wasm"))]
     pub fn write_mmap_companion<P: AsRef<std::path::Path>>(&self, path: P) -> io::Result<()> {
         let mut file = std::fs::File::create(path)?;
         self.0.write_mmap_companion(&mut file)?;
@@ -520,14 +547,14 @@ impl<T: Zkir> ProverKey<T> {
         // Fast path: disk hit. Read the gz blob, hash it, install in
         // PK_CACHE keyed by that hash. No gzip recompute on the prove
         // critical path.
-        if let Ok(disk_bytes) = std::fs::read(gz_cache_path) {
-            if !disk_bytes.is_empty() {
-                let hash = persistent_hash(&disk_bytes);
-                if let Ok(mut c) = PK_CACHE.lock() {
-                    c.put(hash, arc_pk as Arc<dyn Any + Send + Sync>);
-                }
-                return Ok(true);
+        if let Ok(disk_bytes) = std::fs::read(gz_cache_path)
+            && !disk_bytes.is_empty()
+        {
+            let hash = persistent_hash(&disk_bytes);
+            if let Ok(mut c) = PK_CACHE.lock() {
+                c.put(hash, arc_pk as Arc<dyn Any + Send + Sync>);
             }
+            return Ok(true);
         }
 
         // Slow path: recompute the gzip, persist atomically, warm
