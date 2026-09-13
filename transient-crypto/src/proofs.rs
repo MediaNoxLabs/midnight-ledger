@@ -470,7 +470,7 @@ impl<T: Zkir> ProverKey<T> {
     /// no extended-domain FFT recomputation.
     ///
     /// Designed for `Resolver::resolve_key` impls that hold an
-    /// initialised `ProverKey` in process memory and feed it into
+    /// initialized `ProverKey` in process memory and feed it into
     /// the bytes-based prover pipeline. The bytes API at the prover
     /// boundary is preserved; the consumer's `try_cache` hits the
     /// freshly-inserted entry instead of paying the multi-GiB
