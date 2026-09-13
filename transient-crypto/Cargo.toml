@@ -40,6 +40,9 @@ lru = "0.18.0"
 # fork; the unmodified upstream 0.7.1 lacks `read_mmap_arc` and
 # this method won't compile.
 memmap2 = "0.9"
+# Gzipped proving-key disk cache (mailbox 0009). The ledger-8 apply landed
+# this; on ledger-9 the hunk was absorbed without it.
+flate2 = "^1.1.2"
 
 # rand 0.9.0 is not yet supported by some of our dependencies, we will
 # stick with 0.8.0 for now.

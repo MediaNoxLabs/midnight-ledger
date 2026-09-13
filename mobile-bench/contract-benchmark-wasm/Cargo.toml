@@ -28,7 +28,7 @@ base-crypto = { path = "../../base-crypto", package = "midnight-base-crypto" }
 transient-crypto = { path = "../../transient-crypto", package = "midnight-transient-crypto" }
 
 # JS interop.
-wasm-bindgen = "=0.2.104"
+wasm-bindgen = "=0.2.108"  # matches the ledger-9 tree; ledger-8 pins 0.2.104
 wasm-bindgen-futures = "^0.4.50"
 js-sys = "^0.3.61"
 
