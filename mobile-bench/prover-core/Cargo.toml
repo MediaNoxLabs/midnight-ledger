@@ -15,7 +15,7 @@ bench = ["dep:criterion"]
 
 [dependencies]
 # Existing workspace members (path deps so we always track HEAD).
-ledger = { path = "../../ledger", package = "midnight-ledger", default-features = false, features = ["proving", "test-utilities"] }
+ledger = { path = "../../ledger", package = "midnight-ledger-v9", default-features = false, features = ["proving", "test-utilities"] }
 zswap = { path = "../../zswap", package = "midnight-zswap" }
 base-crypto = { path = "../../base-crypto", package = "midnight-base-crypto" }
 transient-crypto = { path = "../../transient-crypto", package = "midnight-transient-crypto" }

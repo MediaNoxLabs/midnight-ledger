@@ -70,6 +70,7 @@ panic = "abort"
 # present in consumer builds is fine, as they don't/shouldn't *want* the local
 # packages.
 [patch.crates-io]
+midnight-proofs = { path = "../midnight-zk/proofs" }
 midnight-base-crypto = { path = "base-crypto" }
 midnight-serialize = { path = "serialize" }
 # Because we rely on additions in 2.2
@@ -126,5 +127,3 @@ config = ".spellcheck/cargo-spellcheck.toml"
 # Remove this block to fall back to `midnight-proofs = 0.7.1` and
 # lose `drop_lazy_bases` (no other consumer currently calls it,
 # so the only fallout is contract-benchmark losing the API hook).
-[patch.crates-io]
-midnight-proofs = { path = "../midnight-zk/proofs" }
