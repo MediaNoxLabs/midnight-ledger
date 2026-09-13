@@ -356,9 +356,9 @@ impl<T: Zkir + Tagged> Tagged for ProverKey<T> {
 }
 
 const PK_CACHE_SIZE: usize = 5;
-/// Schema version for the on-disk gzipped-PK cache produced by
+/// Schema version for the on-disk prover-key blob consumed by
 /// [`ProverKey::warm_pk_cache_with_disk`]. Bump when any input that
-/// changes the bytes of `MidnightPK::write` changes (PK layout, gzip
+/// changes the serialized prover-key bytes changes (PK layout, gzip
 /// settings, etc.) so stale blobs from before the change get
 /// invalidated by filename instead of producing silent cache misses.
 pub const PK_GZ_CACHE_SCHEMA_VERSION: u32 = 1;
@@ -433,15 +433,15 @@ impl<T: Zkir> ProverKey<T> {
     /// Pre-populate the process-wide `PK_CACHE` so that a subsequent
     /// `tagged_deserialize::<ProverKey<T>>` of bytes produced by
     /// serialising **this** key returns a `ProverKey` sharing the
-    /// same `Arc<MidnightPK<T>>` — no `MidnightPK::read` rebuild and
-    /// no extended-domain FFT recomputation.
+    /// same `Arc<T::ProverKey>` — no rebuild and no extended-domain
+    /// FFT recomputation.
     ///
     /// Designed for `Resolver::resolve_key` impls that hold an
     /// initialised `ProverKey` in process memory and feed it into
     /// the bytes-based prover pipeline. The bytes API at the prover
     /// boundary is preserved; the consumer's `try_cache` hits the
     /// freshly-inserted entry instead of paying the multi-GiB
-    /// `MidnightPK::read` cost.
+    /// rebuild.
     ///
     /// At BLS12-381 / k=18 the prover-side rebuild empirically
     /// costs ~1.3 GiB; at k=20 it scales to ~5 GiB and is the main
@@ -460,16 +460,16 @@ impl<T: Zkir> ProverKey<T> {
         };
 
         // Compute the exact bytes the consumer-side `try_cache` will
-        // hash: the gzip-compressed `MidnightPK::write` output.
+        // hash. Going through `T::write_raw_pk` is what makes that
+        // exact rather than hopeful: `inner_serialize` writes an
+        // `Initialized` key with the very same call, and the peer's
+        // `deserialize` hashes what it reads back. Re-implementing the
+        // encoding here — as the ledger-8 version did, gzipping in this
+        // crate — would leave two copies that must agree by convention,
+        // and a drift between them is silent: every lookup misses and
+        // the multi-GiB rebuild happens anyway.
         let mut inner_buf = Vec::new();
-        {
-            let mut writer = flate2::write::GzEncoder::new(
-                &mut inner_buf,
-                flate2::Compression::new(PK_COMPRESSION_LEVEL),
-            );
-            arc_pk.write(&mut writer, SerdeFormat::RawBytesUnchecked)?;
-            writer.finish()?;
-        }
+        T::write_raw_pk(&mut inner_buf, &arc_pk)?;
 
         let hash = persistent_hash(&inner_buf);
         if let Ok(mut c) = PK_CACHE.lock() {
@@ -478,26 +478,25 @@ impl<T: Zkir> ProverKey<T> {
         Ok(true)
     }
 
-    /// Like [`warm_pk_cache`], but persists the gzipped PK blob to
-    /// `gz_cache_path` on first miss and re-uses it from disk on
-    /// subsequent process invocations. The gzip of `MidnightPK::write`
-    /// output is deterministic for a given `(PK_layout, SRS, IR)`, so
-    /// the cached blob is safe to share across runs as long as none of
-    /// those inputs change.
+    /// Like [`ProverKey::warm_pk_cache`], but persists the serialized PK
+    /// blob to `gz_cache_path` on first miss and re-uses it from disk on
+    /// subsequent process invocations. `T::write_raw_pk`'s output is
+    /// deterministic for a given `(PK layout, SRS, IR)`, so the cached
+    /// blob is safe to share across runs as long as none of those
+    /// inputs change.
     ///
-    /// Safety / correctness: if the file on disk is stale (different
-    /// PK), the `persistent_hash` we register in `PK_CACHE` simply
-    /// will not match the consumer side's `try_cache` lookup hash
-    /// (which is computed from the bytes the resolver actually ships
-    /// via `tagged_serialize`, freshly gzipped from the live `Arc<PK>`).
-    /// In that case the cache entry is dead weight and the consumer
-    /// falls back to the regular `MidnightPK::read` path — no
-    /// correctness hazard, just no speed-up. Cache schema is versioned
-    /// via [`PK_GZ_CACHE_SCHEMA_VERSION`]; embed it in the caller's
-    /// filename so a schema bump invalidates stale files cleanly.
+    /// Safety / correctness: if the file on disk is stale (a different
+    /// PK), the `persistent_hash` registered in `PK_CACHE` simply will
+    /// not match the consumer side's `try_cache` lookup hash, which is
+    /// computed from the bytes the resolver actually ships. The cache
+    /// entry is then dead weight and the consumer falls back to the
+    /// regular rebuild path — no correctness hazard, just no speed-up.
+    /// Cache schema is versioned via [`PK_GZ_CACHE_SCHEMA_VERSION`];
+    /// embed it in the caller's filename so a schema bump invalidates
+    /// stale files cleanly.
     ///
     /// Returns `Ok(true)` if the cache was warmed (from disk or after
-    /// a fresh compress + persist), `Ok(false)` if the key was not
+    /// a fresh serialize + persist), `Ok(false)` if the key was not
     /// `Initialized`.
     pub fn warm_pk_cache_with_disk(
         &self,
@@ -511,8 +510,8 @@ impl<T: Zkir> ProverKey<T> {
             }
         };
 
-        // Fast path: disk hit. Read the gz blob, hash it, install in
-        // PK_CACHE keyed by that hash. No gzip recompute on the prove
+        // Fast path: disk hit. Read the blob, hash it, install in
+        // PK_CACHE keyed by that hash. No re-serialize on the prove
         // critical path.
         if let Ok(disk_bytes) = std::fs::read(gz_cache_path) {
             if !disk_bytes.is_empty() {
@@ -524,19 +523,12 @@ impl<T: Zkir> ProverKey<T> {
             }
         }
 
-        // Slow path: recompute the gzip, persist atomically, warm
-        // PK_CACHE. The gzip itself is exactly the same work the
-        // base `warm_pk_cache` does — we just additionally write it
-        // out so the next process can skip it.
+        // Slow path: re-serialize, persist atomically, warm PK_CACHE.
+        // The serialize itself is exactly the work `warm_pk_cache`
+        // does — we just additionally write it out so the next process
+        // can skip it.
         let mut inner_buf = Vec::new();
-        {
-            let mut writer = flate2::write::GzEncoder::new(
-                &mut inner_buf,
-                flate2::Compression::new(PK_COMPRESSION_LEVEL),
-            );
-            arc_pk.write(&mut writer, SerdeFormat::RawBytesUnchecked)?;
-            writer.finish()?;
-        }
+        T::write_raw_pk(&mut inner_buf, &arc_pk)?;
 
         let hash = persistent_hash(&inner_buf);
         if let Ok(mut c) = PK_CACHE.lock() {
