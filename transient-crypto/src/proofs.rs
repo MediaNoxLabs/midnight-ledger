@@ -38,15 +38,15 @@ use serialize::{
 };
 #[cfg(feature = "proptest")]
 use serialize::{NoStrategy, simple_arbitrary};
+use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
-use std::io::{self, Read};
+use std::io::{self, Read, Seek};
 #[cfg(feature = "proptest")]
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use std::{any::Any, cmp::Ordering};
 use std::{borrow::Cow, num::NonZeroUsize};
-use std::{fmt::Debug, io::Seek};
 use storage_core::Storable;
 use storage_core::arena::ArenaKey;
 use storage_core::db::DB;
@@ -67,13 +67,87 @@ pub type TranscriptHash = blake2b_simd::State;
 impl ParamsProverProvider for base_crypto::data_provider::MidnightDataProvider {
     async fn get_params(&self, k: u8) -> io::Result<ParamsProver> {
         let name = Self::name_k(k);
+
+        // Paths A and A' are the mmap companion fast paths, and they
+        // exist only where `mmap(2)` does. Both are `return`s, so a
+        // target without them simply falls through to Path B below —
+        // which is a real path producing identical parameters, not a
+        // stub. Slower, and that is the correct trade for a target
+        // that cannot map a file at all.
+        //
+        // Gated as one block rather than per-statement: this is the
+        // whole host-only region, and splitting it would scatter `cfg`
+        // through a function whose shape is otherwise portable.
+        #[cfg(not(target_family = "wasm"))]
+        {
+            // Path A — mmap companion if present. The companion is a
+            // `bls_midnight_2pN.mmap` file produced by
+            // `ParamsProver::write_mmap_companion` (typically built once
+            // on a roomy desktop and pushed to the device). When found
+            // we go zero-copy: `ParamsKZG.g`/`g_lagrange` become slice
+            // views into the file mapping and the OS pages handle
+            // eviction under memory pressure. Trigger is file presence,
+            // not an env var, so the optimisation lights up
+            // automatically wherever the companion is shipped.
+            let mmap_path = self.dir.join(format!("{name}.mmap"));
+            if mmap_path.exists() {
+                tracing::info!(
+                    target: "midnight_bench",
+                    stage = "load_mmap",
+                    k = k as u64,
+                );
+                return ParamsProver::read_mmap_path(&mmap_path);
+            }
+
+            // Path A' — build the companion on first miss. Opt-in via
+            // `MIDNIGHT_MMAP_BUILD=1` because the build step briefly
+            // pays the 2× eager-load peak (we hold the just-parsed
+            // `ParamsProver` AND write its bytes out). Useful as a
+            // one-shot precompute on a desktop; the device should just
+            // ship the resulting `.mmap` files.
+            let want_build = matches!(
+                std::env::var("MIDNIGHT_MMAP_BUILD").as_deref(),
+                Ok("1") | Ok("true")
+            );
+            if want_build {
+                tracing::info!(
+                    target: "midnight_bench",
+                    stage = "build_mmap_companion",
+                    k = k as u64,
+                );
+                let reader = self
+                    .get_file(
+                        &name,
+                        &format!("public parameters for k={k} not found in cache"),
+                    )
+                    .await?;
+                let eager = ParamsProver::read(reader)?;
+                eager.write_mmap_companion(&mmap_path)?;
+                drop(eager);
+                return ParamsProver::read_mmap_path(&mmap_path);
+            }
+        }
+
+        // Path B — eager `read_custom` (default) or seekable
+        // skip-g_lagrange `read_custom_lazy` when
+        // `MIDNIGHT_LAZY_PARAMS=1`. The lazy variant trades CPU
+        // (one inverse-NTT recompute per first commit_lagrange) for
+        // peak RAM during file parse.
         let reader = self
             .get_file(
                 &name,
                 &format!("public parameters for k={k} not found in cache"),
             )
             .await?;
-        ParamsProver::read(reader)
+        let want_lazy = matches!(
+            std::env::var("MIDNIGHT_LAZY_PARAMS").as_deref(),
+            Ok("1") | Ok("true")
+        );
+        if want_lazy {
+            ParamsProver::read_lazy(reader)
+        } else {
+            ParamsProver::read(reader)
+        }
     }
 }
 
@@ -88,9 +162,74 @@ impl AsRef<ParamsKZG<Bls12>> for ParamsProver {
 }
 
 impl ParamsProver {
-    /// Reads the prover parameters from a data stream
+    /// Reads the prover parameters from a data stream.
+    ///
+    /// Eager — parses both `g` and `g_lagrange` from the file. Peak
+    /// resident heap during the parse is 2× the SRS size.
     pub fn read<R: Read>(mut reader: R) -> io::Result<Self> {
         Ok(ParamsProver(Arc::new(ParamsKZG::read_custom(
+            &mut reader,
+            SerdeFormat::RawBytesUnchecked,
+        )?)))
+    }
+
+    /// Constructs prover parameters by memory-mapping a companion
+    /// SRS file laid out by [`write_mmap_companion`](Self::write_mmap_companion).
+    ///
+    /// The returned `ParamsProver` holds an `Arc<Mmap>` internally;
+    /// `g` and `g_lagrange` are slice views into the mapping, so
+    /// the SRS contributes **zero heap allocation**. Touched pages
+    /// count against RSS but the OS evicts cold pages under
+    /// memory pressure — the win is during the heavy prove phases
+    /// when FFT scratch dominates and the SRS is referenced only
+    /// at the MSM call sites.
+    ///
+    /// Available only against the patched `midnight-proofs` fork, and
+    /// only on targets that have `mmap(2)`. On wasm the method is
+    /// absent rather than failing at runtime: `read_mmap_arc` is itself
+    /// behind the fork's `mmap` feature there, so calling this could
+    /// never have worked.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn read_mmap_path<P: AsRef<std::path::Path>>(path: P) -> io::Result<Self> {
+        let file = std::fs::File::open(path)?;
+        // SAFETY: read-only mmap of a file we just opened. memmap2's
+        // `Mmap::map` is safe under POSIX assuming the file isn't
+        // concurrently modified by another process; the wallet
+        // owns the companion file under `/data/data/<app>/cache`,
+        // not user-modifiable.
+        #[allow(unsafe_code)]
+        let mmap = unsafe { memmap2::Mmap::map(&file)? };
+        let mmap = Arc::new(mmap);
+        Ok(ParamsProver(Arc::new(ParamsKZG::read_mmap_arc(mmap)?)))
+    }
+
+    /// Write the current params out to a companion file ready for
+    /// `read_mmap_path`. Use after a one-time eager `read` to
+    /// produce the file we then mmap on every subsequent run.
+    ///
+    /// Host-only for the same reason as [`read_mmap_path`](Self::read_mmap_path):
+    /// writing a companion nothing on this target can map back is not a
+    /// useful thing to be able to do.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn write_mmap_companion<P: AsRef<std::path::Path>>(&self, path: P) -> io::Result<()> {
+        let mut file = std::fs::File::create(path)?;
+        self.0.write_mmap_companion(&mut file)?;
+        Ok(())
+    }
+
+    /// Reads the prover parameters from a seekable data stream,
+    /// skipping the on-disk `g_lagrange` block. The Lagrange basis is
+    /// recomputed via inverse-NTT of `g` on first use and cached
+    /// thereafter.
+    ///
+    /// Peak resident heap during the parse stays at 1× the SRS size
+    /// (no second `Vec` is allocated). The first `commit_lagrange`
+    /// in any subsequent prove pays one FFT to populate the cache.
+    ///
+    /// Available only against the patched `midnight-proofs` fork at
+    /// `[patch.crates-io]`. Falls back to `read` if absent.
+    pub fn read_lazy<R: Read + Seek>(mut reader: R) -> io::Result<Self> {
+        Ok(ParamsProver(Arc::new(ParamsKZG::read_custom_lazy(
             &mut reader,
             SerdeFormat::RawBytesUnchecked,
         )?)))
@@ -244,6 +383,12 @@ impl<T: Zkir + Tagged> Tagged for ProverKey<T> {
 }
 
 const PK_CACHE_SIZE: usize = 5;
+/// Schema version for the on-disk prover-key blob consumed by
+/// [`ProverKey::warm_pk_cache_with_disk`]. Bump when any input that
+/// changes the serialized prover-key bytes changes (PK layout, gzip
+/// settings, etc.) so stale blobs from before the change get
+/// invalidated by filename instead of producing silent cache misses.
+pub const PK_GZ_CACHE_SCHEMA_VERSION: u32 = 1;
 
 lazy_static! {
     // forall<T> Arc<MidnightPK<T>>
@@ -310,6 +455,133 @@ impl<T: Zkir> ProverKey<T> {
                 Err(e)
             }
         }
+    }
+
+    /// Pre-populate the process-wide `PK_CACHE` so that a subsequent
+    /// `tagged_deserialize::<ProverKey<T>>` of bytes produced by
+    /// serialising **this** key returns a `ProverKey` sharing the
+    /// same `Arc<T::ProverKey>` — no rebuild and no extended-domain
+    /// FFT recomputation.
+    ///
+    /// Designed for `Resolver::resolve_key` impls that hold an
+    /// initialized `ProverKey` in process memory and feed it into
+    /// the bytes-based prover pipeline. The bytes API at the prover
+    /// boundary is preserved; the consumer's `try_cache` hits the
+    /// freshly-inserted entry instead of paying the multi-GiB
+    /// rebuild.
+    ///
+    /// At BLS12-381 / k=18 the prover-side rebuild empirically
+    /// costs ~1.3 GiB; at k=20 it scales to ~5 GiB and is the main
+    /// reason `contract-benchmark`'s k=20 dies on mobile.
+    ///
+    /// Returns `Ok(true)` if the key was `Initialized` and the
+    /// cache was warmed; `Ok(false)` if the key was
+    /// `Uninitialized`/`Invalid` (nothing to share).
+    pub fn warm_pk_cache(&self) -> std::io::Result<bool> {
+        let arc_pk = {
+            let mutex = self.0.lock().expect("mutex not poisoned");
+            match &*mutex {
+                InnerProverKey::Initialized(key) => key.clone(),
+                _ => return Ok(false),
+            }
+        };
+
+        // Compute the exact bytes the consumer-side `try_cache` will
+        // hash. Going through `T::write_raw_pk` is what makes that
+        // exact rather than hopeful: `inner_serialize` writes an
+        // `Initialized` key with the very same call, and the peer's
+        // `deserialize` hashes what it reads back. Re-implementing the
+        // encoding here — as the ledger-8 version did, gzipping in this
+        // crate — would leave two copies that must agree by convention,
+        // and a drift between them is silent: every lookup misses and
+        // the multi-GiB rebuild happens anyway.
+        let mut inner_buf = Vec::new();
+        T::write_raw_pk(&mut inner_buf, &arc_pk)?;
+
+        let hash = persistent_hash(&inner_buf);
+        if let Ok(mut c) = PK_CACHE.lock() {
+            c.put(hash, arc_pk as Arc<dyn Any + Send + Sync>);
+        }
+        Ok(true)
+    }
+
+    /// Like [`ProverKey::warm_pk_cache`], but persists the serialized PK
+    /// blob to `gz_cache_path` on first miss and re-uses it from disk on
+    /// subsequent process invocations. `T::write_raw_pk`'s output is
+    /// deterministic for a given `(PK layout, SRS, IR)`, so the cached
+    /// blob is safe to share across runs as long as none of those
+    /// inputs change.
+    ///
+    /// Safety / correctness: if the file on disk is stale (a different
+    /// PK), the `persistent_hash` registered in `PK_CACHE` simply will
+    /// not match the consumer side's `try_cache` lookup hash, which is
+    /// computed from the bytes the resolver actually ships. The cache
+    /// entry is then dead weight and the consumer falls back to the
+    /// regular rebuild path — no correctness hazard, just no speed-up.
+    /// Cache schema is versioned via [`PK_GZ_CACHE_SCHEMA_VERSION`];
+    /// embed it in the caller's filename so a schema bump invalidates
+    /// stale files cleanly.
+    ///
+    /// Returns `Ok(true)` if the cache was warmed (from disk or after
+    /// a fresh serialize + persist), `Ok(false)` if the key was not
+    /// `Initialized`.
+    pub fn warm_pk_cache_with_disk(
+        &self,
+        gz_cache_path: &std::path::Path,
+    ) -> std::io::Result<bool> {
+        let arc_pk = {
+            let mutex = self.0.lock().expect("mutex not poisoned");
+            match &*mutex {
+                InnerProverKey::Initialized(key) => key.clone(),
+                _ => return Ok(false),
+            }
+        };
+
+        // Fast path: disk hit. Read the blob, hash it, install in
+        // PK_CACHE keyed by that hash. No re-serialize on the prove
+        // critical path.
+        if let Ok(disk_bytes) = std::fs::read(gz_cache_path)
+            && !disk_bytes.is_empty()
+        {
+            let hash = persistent_hash(&disk_bytes);
+            if let Ok(mut c) = PK_CACHE.lock() {
+                c.put(hash, arc_pk as Arc<dyn Any + Send + Sync>);
+            }
+            return Ok(true);
+        }
+
+        // Slow path: re-serialize, persist atomically, warm PK_CACHE.
+        // The serialize itself is exactly the work `warm_pk_cache`
+        // does — we just additionally write it out so the next process
+        // can skip it.
+        let mut inner_buf = Vec::new();
+        T::write_raw_pk(&mut inner_buf, &arc_pk)?;
+
+        let hash = persistent_hash(&inner_buf);
+        if let Ok(mut c) = PK_CACHE.lock() {
+            c.put(hash, arc_pk as Arc<dyn Any + Send + Sync>);
+        }
+
+        // Persist via tmpfile + rename so a crashed write never leaves
+        // a half-written cache file. Best-effort: on failure we log
+        // and continue — the in-memory PK_CACHE entry is already
+        // installed.
+        if let Some(parent) = gz_cache_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let tmp_path = gz_cache_path.with_extension("bin.tmp");
+        if let Err(e) = std::fs::write(&tmp_path, &inner_buf)
+            .and_then(|_| std::fs::rename(&tmp_path, gz_cache_path))
+        {
+            tracing::warn!(
+                target: "midnight_bench",
+                stage = "warm_pk_cache_with_disk.persist_failed",
+                path = %gz_cache_path.display(),
+                err = %e,
+            );
+            let _ = std::fs::remove_file(&tmp_path);
+        }
+        Ok(true)
     }
 
     fn inner_serialize<W: std::io::Write>(&self, mut writer: W) -> std::io::Result<()> {

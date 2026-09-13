@@ -67,6 +67,20 @@ panic = "abort"
 # present in consumer builds is fine, as they don't/shouldn't *want* the local
 # packages.
 [patch.crates-io]
+# Pinned to a rev, not a sibling `path`, on purpose.
+#
+# This line needs midnight-proofs `^0.8.1`, which only the patched
+# 0.8.2 branch provides. A `path = "../midnight-zk/proofs"` pin means
+# "whatever branch that checkout happens to be on" — and when that is
+# `main-patched` (0.8.0) the requirement is unsatisfied, so cargo
+# *drops the patch* with a warning and resolves the registry crate
+# instead. The build then succeeds without any of the optimisations,
+# which is the worst possible failure: silent.
+#
+# MediaNoxLabs/midnight-zk @ proofs-0.8-patched. To iterate locally,
+# add a `paths = ["../midnight-zk/proofs"]` override in your own
+# `.cargo/config.toml` rather than editing this line.
+midnight-proofs = { git = "https://github.com/MediaNoxLabs/midnight-zk", rev = "1a2177695edc7839d04b1dbf716f4f9450bb19bd" }
 midnight-base-crypto = { path = "base-crypto" }
 midnight-serialize = { path = "serialize" }
 # Because we rely on additions in 2.2
