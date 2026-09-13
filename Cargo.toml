@@ -118,4 +118,17 @@ config = ".spellcheck/cargo-spellcheck.toml"
 # lose `drop_lazy_bases` (no other consumer currently calls it,
 # so the only fallout is contract-benchmark losing the API hook).
 [patch.crates-io]
-midnight-proofs = { path = "../midnight-zk/proofs" }
+# Pinned to a rev, not a sibling `path`, on purpose.
+#
+# This line needs midnight-proofs `^0.7.0`, which only the patched
+# 0.7.3 branch provides. A `path = "../midnight-zk/proofs"` pin means
+# "whatever branch that checkout happens to be on" — when that is
+# `main-patched` (0.8.0) the requirement is unsatisfied and cargo
+# *drops the patch* with a warning, building with none of the
+# optimisations. It also resolves relative to the *worktree*, so it
+# breaks outright in any checkout that is not the primary one.
+#
+# MediaNoxLabs/midnight-zk @ proofs-0.7-patched. To iterate locally,
+# add a `paths = [...]` override in your own `.cargo/config.toml`
+# rather than editing this line.
+midnight-proofs = { git = "https://github.com/MediaNoxLabs/midnight-zk", rev = "bbda416ae19210f0b151fc951dd3f3f4ce767a99" }

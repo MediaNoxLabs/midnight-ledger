@@ -66,6 +66,18 @@ blake2b_simd = "1.0.3"
 
 futures = { version = "^0.3.31" }
 
+# Host-only prover optimisations in the patched midnight-proofs.
+#
+# `disk-spill` implies `mmap`, and both are a `compile_error!` on wasm —
+# deliberately, so a browser build fails loudly at compile time instead
+# of panicking on first use of a mapped path. Requesting them per-target
+# is what lets one workspace build both: native gets `read_mmap_arc`,
+# `write_mmap_companion` and the coset spill; wasm gets a
+# midnight-proofs with neither the code nor the `memmap2`/`tempfile`
+# dependencies in its bundle.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+midnight-proofs = { version = "^0.7.0", features = ["disk-spill"] }
+
 [dev-dependencies]
 midnight-transient-crypto = { path = ".", features = ["proptest"] }
 actix-rt = "^2.10.0"
