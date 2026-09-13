@@ -28,6 +28,11 @@ storage-core = { version = "1.0.0", path = "../storage-core", package = "midnigh
 ff = "^0.13.1"
 group = "^0.13.0"
 midnight-curves = { version = "^0.3.1" }
+# Features are requested per-target below, not here: `disk-spill` (and
+# the `mmap` it implies) are host-only in the patched fork and are a
+# `compile_error!` on wasm. Asking for them unconditionally would break
+# every wasm consumer in this workspace, because cargo features are
+# additive across the whole graph.
 midnight-proofs = { version = "^0.8.1" }
 midnight-circuits = { version = "^7.2.2" }
 midnight-zk-stdlib = { version = "^2.3.3" }
@@ -67,6 +72,18 @@ proptest-derive = { version = "0.8", optional = true }
 blake2b_simd = "1.0.3"
 
 futures = { version = "^0.3.31" }
+
+# Host-only prover optimisations in the patched midnight-proofs.
+#
+# `disk-spill` implies `mmap`, and both are a `compile_error!` on wasm —
+# deliberately, so a browser build fails loudly at compile time instead
+# of panicking on first use of a mapped path. Requesting them per-target
+# is what lets one workspace build both: native gets `read_mmap_arc`,
+# `write_mmap_companion` and the coset spill; wasm gets a
+# midnight-proofs with neither the code nor the `memmap2`/`tempfile`
+# dependencies in its bundle.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+midnight-proofs = { version = "^0.8.1", features = ["disk-spill"] }
 
 [dev-dependencies]
 midnight-transient-crypto = { path = ".", features = ["proptest"] }
