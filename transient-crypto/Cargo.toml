@@ -38,13 +38,10 @@ midnight-circuits = { version = "^7.2.2" }
 midnight-zk-stdlib = { version = "^2.3.3" }
 anyhow = { version = "^1.0.102" }
 lru = "0.18.0"
-# `read_mmap_path` opens the companion SRS file via `memmap2` and
-# hands the `Arc<Mmap>` to the patched midnight-proofs'
-# `read_mmap_arc`. The companion file lives in the app cache dir
-# and the mapping is read-only. Available only against the patched
-# fork; the unmodified upstream 0.7.1 lacks `read_mmap_arc` and
-# this method won't compile.
-memmap2 = "0.9"
+# `memmap2` is declared per-target below, alongside the midnight-proofs
+# features it pairs with — see the `cfg(not(target_family = "wasm"))`
+# table. Declaring it here would put it in every wasm bundle for code
+# that target cannot reach.
 # Gzipped proving-key disk cache (mailbox 0009). The ledger-8 apply landed
 # this; on ledger-9 the hunk was absorbed without it.
 flate2 = "^1.1.2"
@@ -84,6 +81,12 @@ futures = { version = "^0.3.31" }
 # dependencies in its bundle.
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 midnight-proofs = { version = "^0.8.1", features = ["disk-spill"] }
+# `read_mmap_path` opens the companion SRS file via `memmap2` and hands
+# the `Arc<Mmap>` to the patched midnight-proofs' `read_mmap_arc`. The
+# companion lives in the app cache dir and the mapping is read-only.
+# Lives in this table because it is exactly as host-only as the feature
+# above: without `mmap` there is no `read_mmap_arc` to hand it to.
+memmap2 = "0.9"
 
 [dev-dependencies]
 midnight-transient-crypto = { path = ".", features = ["proptest"] }
