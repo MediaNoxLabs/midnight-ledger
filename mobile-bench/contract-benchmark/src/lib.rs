@@ -104,7 +104,7 @@ pub const COST_MODEL_SAFE_K: u32 = 17;
 
 /// Precomputed transient-hash chain length that realises each target
 /// `k` exactly. Lets `build_ir_for_k` skip the probe-and-double loop
-/// + binary shrink (typically 5–17 IR parses) and just build the
+/// and binary shrink (typically 5–17 IR parses) and just build the
 /// circuit once with a known-good `n`.
 ///
 /// Index by `k` directly (slot `[0]` unused). Values were observed
@@ -148,13 +148,11 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("k out of range: requested {requested}, supported {MIN_K}..={MAX_K}")]
     KOutOfRange { requested: u32 },
-    #[error("could not build a circuit needing k = {target}: \
-            grew chain to {ops} transient_hash ops and only reached k = {reached}")]
-    CircuitGrowFailed {
-        target: u32,
-        reached: u32,
-        ops: u32,
-    },
+    #[error(
+        "could not build a circuit needing k = {target}: \
+            grew chain to {ops} transient_hash ops and only reached k = {reached}"
+    )]
+    CircuitGrowFailed { target: u32, reached: u32, ops: u32 },
     #[error("anyhow: {0}")]
     Anyhow(#[from] anyhow::Error),
 }
@@ -297,9 +295,11 @@ fn ir_cache_store(target_k: u32, value: (IrSource, u32)) {
 /// The values are `Arc`-shaped internally (`ProverKey<T> =
 /// Arc<Mutex<…>>`, `VerifierKey = Arc<Mutex<…>>`), so insert + clone
 /// are pointer copies — no per-prove allocation cost.
-static KEY_CACHE: std::sync::OnceLock<
-    std::sync::Mutex<std::collections::HashMap<u32, (ProverKey<IrSource>, VerifierKey)>>,
-> = std::sync::OnceLock::new();
+/// Keyed by `k`; both halves are `Arc`-backed, so a hit is a pointer copy.
+type KeyCache =
+    std::sync::Mutex<std::collections::HashMap<u32, (ProverKey<IrSource>, VerifierKey)>>;
+
+static KEY_CACHE: std::sync::OnceLock<KeyCache> = std::sync::OnceLock::new();
 
 fn key_cache_lookup(target_k: u32) -> Option<(ProverKey<IrSource>, VerifierKey)> {
     KEY_CACHE
@@ -321,16 +321,18 @@ fn key_cache_store(target_k: u32, value: (ProverKey<IrSource>, VerifierKey)) {
 /// Drop every cached `(pk, vk)` pair — useful in tests / between
 /// repeat sweeps where you want to time a true cold run.
 pub fn clear_key_cache() {
-    if let Some(m) = KEY_CACHE.get() {
-        if let Ok(mut g) = m.lock() {
-            g.clear();
-        }
+    if let Some(m) = KEY_CACHE.get()
+        && let Ok(mut g) = m.lock()
+    {
+        g.clear();
     }
 }
 
 fn build_ir_for_k(target_k: u32) -> Result<(IrSource, u32)> {
     if !(MIN_K..=MAX_K).contains(&target_k) {
-        return Err(Error::KOutOfRange { requested: target_k });
+        return Err(Error::KOutOfRange {
+            requested: target_k,
+        });
     }
 
     // Cache hit: skip JSON build + IR parse + (potential) probing
@@ -383,12 +385,11 @@ fn build_ir_for_k_uncached(target_k: u32) -> Result<(IrSource, u32)> {
     // We trust `HASHES_FOR_K` at high k (the desktop
     // `every_k_builds` test validates the table up to MAX_K).
     let expected_n = HASHES_FOR_K[target_k as usize];
-    if expected_n > 0 {
-        if let Ok(ir) = build_hash_chain_ir(expected_n) {
-            if target_k > COST_MODEL_SAFE_K || ir.model().k() as u32 == target_k {
-                return Ok((ir, expected_n));
-            }
-        }
+    if expected_n > 0
+        && let Ok(ir) = build_hash_chain_ir(expected_n)
+        && (target_k > COST_MODEL_SAFE_K || ir.model().k() as u32 == target_k)
+    {
+        return Ok((ir, expected_n));
     }
 
     // Heuristic seed: TransientHash adds on the order of ~17 halo2 rows
@@ -512,10 +513,7 @@ struct ChainResolver {
 }
 
 impl ResolverT for ChainResolver {
-    async fn resolve_key(
-        &self,
-        _key: KeyLocation,
-    ) -> std::io::Result<Option<ProvingKeyMaterial>> {
+    async fn resolve_key(&self, _key: KeyLocation) -> std::io::Result<Option<ProvingKeyMaterial>> {
         bench_phase("resolver.resolve_key.start", 0);
         // Pre-warm the process-wide PK_CACHE *before* serialising.
         // The prover's `tagged_deserialize::<ProverKey<T>>` calls
@@ -619,11 +617,7 @@ fn bench_phase(name: &'static str, k: u32) {
 /// using the standard `$MIDNIGHT_PP` / `$XDG_CACHE_HOME` resolution.
 /// The browser-facing wrapper (`contract-benchmark-wasm`) passes a
 /// `JsKeyProvider` that fetches via the JS `getParams(k)` callback.
-pub async fn run_proof_with_params<P>(
-    k: u32,
-    opts: &RunOpts,
-    params: &P,
-) -> Result<RunStats>
+pub async fn run_proof_with_params<P>(k: u32, opts: &RunOpts, params: &P) -> Result<RunStats>
 where
     P: ParamsProverProvider,
 {
@@ -722,7 +716,10 @@ where
         let digest = Sha256::digest(&buf);
         // Lowercase hex, no `0x` prefix — easy to grep + diff against
         // `docs/test-vectors/proof-vectors.json`.
-        let hex = digest.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+        let hex = digest
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>();
         (buf.len(), hex)
     };
 
@@ -855,10 +852,7 @@ pub async fn keygen_for_k(k: u32, opts: &RunOpts) -> Result<()> {
 /// (`PUBLIC_PARAMS` = ZswapResolver + DustResolver + the
 /// caller-supplied data), so the embedded path is byte-identical
 /// to running the proof-server container.
-pub async fn prove_tx_bytes(
-    request_bytes: &[u8],
-    cache_dir: Option<PathBuf>,
-) -> Result<Vec<u8>> {
+pub async fn prove_tx_bytes(request_bytes: &[u8], cache_dir: Option<PathBuf>) -> Result<Vec<u8>> {
     use base_crypto::data_provider::{FetchMode, MidnightDataProvider, OutputMode};
     use ledger::dust::{DUST_EXPECTED_FILES, DustResolver};
     use ledger::prove::Resolver;
@@ -898,9 +892,7 @@ pub async fn prove_tx_bytes(
     let resolver = Resolver::new(
         (*zswap_resolver).clone(),
         dust_resolver,
-        Box::new(move |_: KeyLocation| {
-            Box::pin(std::future::ready(Ok(data_resolver.clone())))
-        }),
+        Box::new(move |_: KeyLocation| Box::pin(std::future::ready(Ok(data_resolver.clone())))),
     );
 
     let proof = match ppi {
@@ -919,7 +911,7 @@ pub async fn prove_tx_bytes(
                     .ok_or_else(|| {
                         Error::Anyhow(anyhow::anyhow!(
                             "couldn't find key {}",
-                            &ppi_v2.key_location.0
+                            ppi_v2.key_location.0
                         ))
                     })?,
             };
@@ -941,9 +933,11 @@ pub async fn prove_tx_bytes(
         }
         // Footgun mirror: proof-server's match is non-exhaustive
         // for forward-compatibility.
-        _ => return Err(Error::Anyhow(anyhow::anyhow!(
-            "unsupported ProofPreimageVersioned variant"
-        ))),
+        _ => {
+            return Err(Error::Anyhow(anyhow::anyhow!(
+                "unsupported ProofPreimageVersioned variant"
+            )));
+        }
     };
 
     let mut response = Vec::new();
@@ -957,10 +951,7 @@ pub async fn prove_tx_bytes(
 ///
 ///   request = tagged_serialize((ProofPreimageVersioned, Option<WrappedIr>))
 ///   response = tagged_serialize(Vec<Option<u64>>)
-pub async fn check_tx_bytes(
-    request_bytes: &[u8],
-    cache_dir: Option<PathBuf>,
-) -> Result<Vec<u8>> {
+pub async fn check_tx_bytes(request_bytes: &[u8], cache_dir: Option<PathBuf>) -> Result<Vec<u8>> {
     use base_crypto::data_provider::{FetchMode, MidnightDataProvider, OutputMode};
     use ledger::dust::{DUST_EXPECTED_FILES, DustResolver};
     use ledger::prove::Resolver;
@@ -998,19 +989,18 @@ pub async fn check_tx_bytes(
             );
             let key_loc = match &ppi {
                 ProofPreimageVersioned::V2(p) => p.key_location.clone(),
-                _ => return Err(Error::Anyhow(anyhow::anyhow!(
-                    "unsupported ProofPreimageVersioned variant"
-                ))),
+                _ => {
+                    return Err(Error::Anyhow(anyhow::anyhow!(
+                        "unsupported ProofPreimageVersioned variant"
+                    )));
+                }
             };
             resolver
                 .resolve_key(key_loc.clone())
                 .await
                 .map_err(|e| Error::Anyhow(anyhow::anyhow!("resolve_key: {e}")))?
                 .ok_or_else(|| {
-                    Error::Anyhow(anyhow::anyhow!(
-                        "couldn't find built-in key {}",
-                        &key_loc.0
-                    ))
+                    Error::Anyhow(anyhow::anyhow!("couldn't find built-in key {}", key_loc.0))
                 })?
                 .ir_source
         }
@@ -1020,15 +1010,17 @@ pub async fn check_tx_bytes(
         ProofPreimageVersioned::V2(ppi_v2) => {
             let ir: zkir::IrSource = tagged_deserialize(&mut &ir_source[..])
                 .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize ir_source: {e}")))?;
-            ppi_v2.check(&ir)
+            ppi_v2
+                .check(&ir)
                 .map_err(|e| Error::Anyhow(anyhow::anyhow!("check: {e}")))?
         }
-        _ => return Err(Error::Anyhow(anyhow::anyhow!(
-            "unsupported ProofPreimageVersioned variant"
-        ))),
+        _ => {
+            return Err(Error::Anyhow(anyhow::anyhow!(
+                "unsupported ProofPreimageVersioned variant"
+            )));
+        }
     };
-    let result_u64: Vec<Option<u64>> =
-        result.into_iter().map(|i| i.map(|i| i as u64)).collect();
+    let result_u64: Vec<Option<u64>> = result.into_iter().map(|i| i.map(|i| i as u64)).collect();
     let mut response = Vec::new();
     tagged_serialize(&result_u64, &mut response)
         .map_err(|e| Error::Anyhow(anyhow::anyhow!("serialize check result: {e}")))?;
@@ -1055,10 +1047,7 @@ fn void_local_unused<T: ?Sized>(_: &T) {}
 /// Returns one entry per public-input slot. `Some(i)` means the slot
 /// is bound to witness index `i`; `None` means the slot is skipped
 /// (no witness binding, value comes from the public transcript).
-pub fn circuit_check_bytes(
-    preimage_bytes: &[u8],
-    zkir_bytes: &[u8],
-) -> Result<Vec<Option<usize>>> {
+pub fn circuit_check_bytes(preimage_bytes: &[u8], zkir_bytes: &[u8]) -> Result<Vec<Option<usize>>> {
     use serialize::tagged_deserialize;
     use transient_crypto::proofs::ProofPreimage;
     use zkir::IrSource;
@@ -1215,11 +1204,8 @@ fn make_zswap_resolver(cache_dir: Option<&std::path::Path>) -> Result<Arc<ZswapR
     } else {
         FetchMode::OnDemand
     };
-    let provider = MidnightDataProvider::new(
-        fetch_mode,
-        OutputMode::Log,
-        ZSWAP_EXPECTED_FILES.to_vec(),
-    )?;
+    let provider =
+        MidnightDataProvider::new(fetch_mode, OutputMode::Log, ZSWAP_EXPECTED_FILES.to_vec())?;
     Ok(Arc::new(ZswapResolver(provider)))
 }
 
@@ -1241,9 +1227,7 @@ mod tests {
             });
             let got = ir.model().k() as u32;
             let rows = ir.model().rows();
-            eprintln!(
-                "k={k:>2}: realized={got:>2} chain={chain:>8} rows={rows}"
-            );
+            eprintln!("k={k:>2}: realized={got:>2} chain={chain:>8} rows={rows}");
             // Realised k must be monotonically non-decreasing in k —
             // requesting a bigger circuit never produces a smaller one.
             assert!(
