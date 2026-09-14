@@ -131,4 +131,4 @@ config = ".spellcheck/cargo-spellcheck.toml"
 # MediaNoxLabs/midnight-zk @ proofs-0.7-patched. To iterate locally,
 # add a `paths = [...]` override in your own `.cargo/config.toml`
 # rather than editing this line.
-midnight-proofs = { git = "https://github.com/MediaNoxLabs/midnight-zk", rev = "b932e263c568667b0c79452575b0a0800e682b9a" }
+midnight-proofs = { git = "https://github.com/MediaNoxLabs/midnight-zk", rev = "ffadcdf0008bf7d275c3cafdc0154a0fb214f2a0" }
