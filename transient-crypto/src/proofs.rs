@@ -188,14 +188,40 @@ impl ParamsProver {
     /// absent rather than failing at runtime: `read_mmap_arc` is itself
     /// behind the fork's `mmap` feature there, so calling this could
     /// never have worked.
+    ///
+    /// # Trust boundary
+    ///
+    /// **`path` must name a file this process produced, in a directory only
+    /// this process can write.** The companion is a local cache, not an
+    /// interchange format: never fetch it, never sync it between devices,
+    /// never accept one from another party.
+    ///
+    /// The header is validated before anything is mapped — magic, point size,
+    /// every offset and count, and each block's alignment — so a malformed
+    /// file fails with `InvalidData`. The *contents* are not: bytes inside a
+    /// well-formed block become `E::G1` values without a curve check. A
+    /// hostile file therefore produces wrong proofs rather than memory
+    /// corruption, and only because every bit pattern is valid for the
+    /// underlying field representation.
+    ///
+    /// The previous note here said the wallet owns the file under the app
+    /// cache directory and users cannot modify it. That is true of one
+    /// deployment; it is not a property of this function, which any consumer
+    /// can call with any path. Stating the requirement is what makes it
+    /// checkable.
     #[cfg(not(target_family = "wasm"))]
     pub fn read_mmap_path<P: AsRef<std::path::Path>>(path: P) -> io::Result<Self> {
         let file = std::fs::File::open(path)?;
-        // SAFETY: read-only mmap of a file we just opened. memmap2's
-        // `Mmap::map` is safe under POSIX assuming the file isn't
-        // concurrently modified by another process; the wallet
-        // owns the companion file under `/data/data/<app>/cache`,
-        // not user-modifiable.
+        // SAFETY: read-only mmap of a file we just opened. `Mmap::map` is
+        // sound under POSIX provided no other process modifies the file while
+        // the mapping is live — a *caller* obligation, stated in this
+        // function's `# Trust boundary` section rather than assumed here.
+        //
+        // The previous note justified this by naming one deployment ("the
+        // wallet owns the file under /data/data/<app>/cache"). That is a fact
+        // about a caller, not about this function, which any consumer can call
+        // with any path. A SAFETY comment that reasons about someone else's
+        // directory layout is not checkable by the reader.
         #[allow(unsafe_code)]
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
         let mmap = Arc::new(mmap);
