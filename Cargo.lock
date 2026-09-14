@@ -3437,13 +3437,14 @@ dependencies = [
 [[package]]
 name = "midnight-proofs"
 version = "0.8.2"
-source = "git+https://github.com/MediaNoxLabs/midnight-zk?rev=7dfcb736515db0bacfd63e9ac2b1ff225a964e9f#7dfcb736515db0bacfd63e9ac2b1ff225a964e9f"
+source = "git+https://github.com/MediaNoxLabs/midnight-zk?rev=b290c8996bfc5ed2ad10a8fd1adabbcf0a62d813#b290c8996bfc5ed2ad10a8fd1adabbcf0a62d813"
 dependencies = [
  "blake2b_simd",
  "ff",
  "getrandom 0.2.17",
  "group",
  "itertools 0.14.0",
+ "libc",
  "memmap2",
  "midnight-curves 0.3.1",
  "num-bigint",
