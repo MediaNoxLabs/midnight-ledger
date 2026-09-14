@@ -3261,7 +3261,7 @@ dependencies = [
 [[package]]
 name = "midnight-proofs"
 version = "0.7.3"
-source = "git+https://github.com/MediaNoxLabs/midnight-zk?rev=a9032ffa673c2c417a2cbf1ef48ad593bda16ef4#a9032ffa673c2c417a2cbf1ef48ad593bda16ef4"
+source = "git+https://github.com/MediaNoxLabs/midnight-zk?rev=20d204a66824db117dc3fd18ed023016a0a31216#20d204a66824db117dc3fd18ed023016a0a31216"
 dependencies = [
  "blake2b_simd",
  "ff",
