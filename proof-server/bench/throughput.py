@@ -30,6 +30,11 @@ class RequestResult:
     latency_s: float
     status: int
     response_bytes: int
+    # Provenance for the proof itself. HTTP 200 is not proof correctness; the
+    # digest ties a later external verification to this exact response, and
+    # the path is where the bytes went when `--save-responses` was given.
+    response_sha256: str | None
+    response_path: str | None
     error: str | None
 
 
@@ -56,6 +61,8 @@ def fetch_ready(url: str, timeout: float) -> dict[str, Any] | None:
 
 def run(args: argparse.Namespace) -> int:
     payload = args.payload.read_bytes()
+    if args.save_responses is not None:
+        args.save_responses.mkdir(parents=True, exist_ok=True)
     ready_url = args.ready_url or args.url.rsplit("/", 1)[0] + "/ready"
     gate = threading.Barrier(args.requests + 1)
     stop_sampling = threading.Event()
@@ -97,6 +104,14 @@ def run(args: argparse.Namespace) -> int:
         except (OSError, urllib.error.URLError) as exc:
             error = str(exc)
         finished = time.perf_counter()
+        # Keep the proof, not just its length: a successful body is what the
+        # external verifier needs, and the digest is recorded either way.
+        response_sha256 = hashlib.sha256(body).hexdigest() if body else None
+        response_path = None
+        if args.save_responses is not None and 200 <= status < 300:
+            target = args.save_responses / f"{args.label}-{request_id:02d}.bin"
+            target.write_bytes(body)
+            response_path = str(target)
         return RequestResult(
             request=request_id,
             started_s=started - burst_origin,
@@ -104,6 +119,8 @@ def run(args: argparse.Namespace) -> int:
             latency_s=finished - started,
             status=status,
             response_bytes=len(body),
+            response_sha256=response_sha256,
+            response_path=response_path,
             error=error,
         )
 
@@ -164,6 +181,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ready-interval", type=float, default=0.25)
     parser.add_argument("--label", default="unlabelled")
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--save-responses",
+        type=Path,
+        metavar="DIR",
+        help="write each successful response body to DIR/<label>-<nn>.bin for external verification",
+    )
     return parser.parse_args()
 
 
