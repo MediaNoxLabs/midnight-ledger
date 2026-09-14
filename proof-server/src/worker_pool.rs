@@ -168,12 +168,21 @@ impl Requests {
     }
 
     async fn new_req(&self) -> Result<Uuid, WorkerPoolError> {
-        if self.is_full().await {
+        // Capacity admission must be one atomic operation. With the previous
+        // `is_full().await` followed by a second lock for `insert`, a burst of
+        // HTTP requests could all observe spare capacity and overfill the
+        // supposedly bounded queue before any one of them inserted its job.
+        let mut reqs = self.reqs.lock().await;
+        let pending = reqs
+            .values()
+            .filter(|job| matches!(job.status, JobStatus::Pending))
+            .count();
+        if self.capacity != 0 && pending >= self.capacity {
             return Err(WorkerPoolError::JobQueueFull);
         }
         let req = Job::new(self.job_ttl);
         let id = Uuid::new_v4();
-        self.reqs.lock().await.insert(id, req);
+        reqs.insert(id, req);
         Ok(id)
     }
 
@@ -534,5 +543,30 @@ mod tests {
             .await;
         assert!(res.is_err());
         assert!(matches!(res, Err(WorkerPoolError::JobQueueFull)));
+    }
+
+    #[tokio::test]
+    async fn concurrent_submissions_never_exceed_pending_capacity() {
+        const CAPACITY: usize = 5;
+        const ATTEMPTS: usize = 32;
+
+        let requests = Arc::new(Requests::new(CAPACITY, Duration::from_secs(5)));
+        let barrier = Arc::new(tokio::sync::Barrier::new(ATTEMPTS));
+        let attempts = (0..ATTEMPTS).map(|_| {
+            let requests = Arc::clone(&requests);
+            let barrier = Arc::clone(&barrier);
+            tokio::spawn(async move {
+                barrier.wait().await;
+                requests.new_req().await
+            })
+        });
+        let results = futures::future::join_all(attempts).await;
+        let accepted = results
+            .into_iter()
+            .filter(|result| matches!(result, Ok(Ok(_))))
+            .count();
+
+        assert_eq!(accepted, CAPACITY);
+        assert_eq!(requests.pending_count().await, CAPACITY);
     }
 }
