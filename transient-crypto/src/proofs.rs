@@ -52,6 +52,52 @@ use storage_core::db::DB;
 use storage_core::storable::Loader;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+/// How `ParamsProverProvider::get_params` loads the SRS.
+///
+/// The same argument as `midnight_proofs::config::ProverConfig`, one crate up:
+/// two variables read inline are invisible in every signature, cannot differ
+/// between two providers in one process, and cannot be exercised by a test
+/// without mutating process environment — which is `unsafe` under Rust 2024
+/// and races every other test in the binary.
+///
+/// The variables still work and mean what they meant; they are parsed in one
+/// place instead of at their use sites.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ParamsLoadPolicy {
+    /// Build the mmap companion file on first miss, paying a transient 2×
+    /// peak to write it out. A one-shot desktop precompute — a device should
+    /// ship the resulting file rather than build it.
+    pub build_mmap_companion: bool,
+
+    /// Skip parsing `g_lagrange` and recompute it on first use. Trades one
+    /// inverse NTT for peak RAM during the parse; worth it only where the
+    /// recompute amortises over a long idle period, and a clear loss in a
+    /// tight prove loop.
+    pub lazy_params: bool,
+}
+
+impl ParamsLoadPolicy {
+    /// Read the policy from the environment. The only place this crate does so.
+    ///
+    /// | variable | field |
+    /// |---|---|
+    /// | `MIDNIGHT_MMAP_BUILD` | [`build_mmap_companion`](Self::build_mmap_companion) |
+    /// | `MIDNIGHT_LAZY_PARAMS` | [`lazy_params`](Self::lazy_params) |
+    pub fn from_env() -> Self {
+        let flag = |name: &str| matches!(std::env::var(name).as_deref(), Ok("1") | Ok("true"));
+        Self {
+            build_mmap_companion: flag("MIDNIGHT_MMAP_BUILD"),
+            lazy_params: flag("MIDNIGHT_LAZY_PARAMS"),
+        }
+    }
+
+    /// The process-wide policy, read once.
+    pub fn process() -> Self {
+        static POLICY: std::sync::OnceLock<ParamsLoadPolicy> = std::sync::OnceLock::new();
+        *POLICY.get_or_init(ParamsLoadPolicy::from_env)
+    }
+}
+
 /// A provider of prover parameters.
 pub trait ParamsProverProvider {
     // Allowed because we don't care about auto traits here.
@@ -104,11 +150,7 @@ impl ParamsProverProvider for base_crypto::data_provider::MidnightDataProvider {
             // `ParamsProver` AND write its bytes out). Useful as a
             // one-shot precompute on a desktop; the device should just
             // ship the resulting `.mmap` files.
-            let want_build = matches!(
-                std::env::var("MIDNIGHT_MMAP_BUILD").as_deref(),
-                Ok("1") | Ok("true")
-            );
-            if want_build {
+            if ParamsLoadPolicy::process().build_mmap_companion {
                 tracing::info!(
                     target: "midnight_bench",
                     stage = "build_mmap_companion",
@@ -138,11 +180,7 @@ impl ParamsProverProvider for base_crypto::data_provider::MidnightDataProvider {
                 &format!("public parameters for k={k} not found in cache"),
             )
             .await?;
-        let want_lazy = matches!(
-            std::env::var("MIDNIGHT_LAZY_PARAMS").as_deref(),
-            Ok("1") | Ok("true")
-        );
-        if want_lazy {
+        if ParamsLoadPolicy::process().lazy_params {
             ParamsProver::read_lazy(reader)
         } else {
             ParamsProver::read(reader)
