@@ -83,7 +83,7 @@ panic = "abort"
 # MediaNoxLabs/midnight-zk @ proofs-0.8-patched. To iterate locally,
 # add a `paths = ["../midnight-zk/proofs"]` override in your own
 # `.cargo/config.toml` rather than editing this line.
-midnight-proofs = { git = "https://github.com/MediaNoxLabs/midnight-zk", rev = "7dfcb736515db0bacfd63e9ac2b1ff225a964e9f" }
+midnight-proofs = { git = "https://github.com/MediaNoxLabs/midnight-zk", rev = "b290c8996bfc5ed2ad10a8fd1adabbcf0a62d813" }
 midnight-base-crypto = { path = "base-crypto" }
 midnight-serialize = { path = "serialize" }
 # Because we rely on additions in 2.2
