@@ -66,7 +66,7 @@ use zswap::{ZSWAP_EXPECTED_FILES, prove::ZswapResolver};
 
 /// Inclusive upper bound on `k`. Originally 20; raised to 21 to
 /// characterise the failure mode beyond the disk-spill unlock
-/// (advice_cosets remain heap-resident — see §10.8 / §11 in the
+/// (`advice_cosets` remain heap-resident — see §10.8 / §11 in the
 /// architecture doc). Bumped to 22 in iteration 3 of the k21-plan
 /// so the S3 chunked-Pippenger fallback in midnight-zk:msm.rs can
 /// actually be exercised — at k=22 (n=2^22) the MSM falls off the
@@ -94,7 +94,7 @@ pub const MAX_VERIFIABLE_K: u32 = 14;
 ///
 /// The cost-model path is a *measurement* aid — the real prover
 /// (`ir.keygen` + `prove`) takes a different synthesis route that
-/// doesn't allocate this HashMap. So at `target_k > COST_MODEL_SAFE_K`
+/// doesn't allocate this `HashMap`. So at `target_k > COST_MODEL_SAFE_K`
 /// we trust the precomputed `HASHES_FOR_K[k]` and skip the call.
 ///
 /// Set to 17: empirically k=18 still completes the cost-model
@@ -218,7 +218,7 @@ pub struct RunOpts {
     /// high `k` where keygen ≈ prove.
     ///
     /// Default `true` because both the wallet's repeat-prove path and
-    /// the bench_cli `--repeat=N` flag benefit. Disable to time a
+    /// the `bench_cli` `--repeat=N` flag benefit. Disable to time a
     /// cold keygen explicitly.
     pub cache_keys: bool,
 }
@@ -576,7 +576,7 @@ impl ResolverT for ChainResolver {
 /// Reads `/proc/self/status::{VmRSS,VmHWM}` and emits a stage event.
 /// Same pattern as midnight-proofs's `log_phase` — kept duplicated
 /// here so this crate doesn't need a back-channel into the proofs
-/// crate's private helpers. On macOS/iOS (`/proc` absent) the event
+/// crate's private helpers. On `macOS`/iOS (`/proc` absent) the event
 /// fires without memory fields.
 fn bench_phase(name: &'static str, k: u32) {
     #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -829,11 +829,11 @@ pub async fn keygen_for_k(k: u32, opts: &RunOpts) -> Result<()> {
 ///   `verifier_key_bytes` — tagged-serialized `VerifierKey`.
 ///   `zkir_bytes`        — tagged-serialized `IrSource`.
 ///   `seed`              — RNG seed for prove. 0 = library default.
-///   `cache_dir`         — SRS cache dir (same MIDNIGHT_PP semantics
+///   `cache_dir`         — SRS cache dir (same `MIDNIGHT_PP` semantics
 ///                          as the bench path). `None` = use the
 ///                          resolver chain's default.
 ///
-/// Output: serialized proof bytes (tagged_serialize of `Proof`).
+/// Output: serialized proof bytes (`tagged_serialize` of `Proof`).
 #[cfg(not(target_arch = "wasm32"))]
 /// R11 — Transaction-level prove entry point matching the upstream
 /// proof-server's POST /prove endpoint logic, for the wallet-sdk's
@@ -845,11 +845,11 @@ pub async fn keygen_for_k(k: u32, opts: &RunOpts) -> Result<()> {
 /// the prover to resolve zswap + dust ZK artefacts from a built-in
 /// resolver. This entry mirrors that:
 ///
-///   request = tagged_serialize((ProofPreimageVersioned, Option<ProvingKeyMaterial>, Option<Fr>))
-///   response = tagged_serialize(ProofVersioned)
+///   request = `tagged_serialize`((ProofPreimageVersioned, Option<ProvingKeyMaterial>, Option<Fr>))
+///   response = `tagged_serialize`(`ProofVersioned`)
 ///
 /// We re-use the proof-server's exact resolver chain
-/// (`PUBLIC_PARAMS` = ZswapResolver + DustResolver + the
+/// (`PUBLIC_PARAMS` = `ZswapResolver` + `DustResolver` + the
 /// caller-supplied data), so the embedded path is byte-identical
 /// to running the proof-server container.
 pub async fn prove_tx_bytes(request_bytes: &[u8], cache_dir: Option<PathBuf>) -> Result<Vec<u8>> {
@@ -949,8 +949,8 @@ pub async fn prove_tx_bytes(request_bytes: &[u8], cache_dir: Option<PathBuf>) ->
 /// R11 — Transaction-level check entry point matching the upstream
 /// proof-server's POST /check.
 ///
-///   request = tagged_serialize((ProofPreimageVersioned, Option<WrappedIr>))
-///   response = tagged_serialize(Vec<Option<u64>>)
+///   request = `tagged_serialize`((ProofPreimageVersioned, Option<WrappedIr>))
+///   response = `tagged_serialize`(Vec<Option<u64>>)
 pub async fn check_tx_bytes(request_bytes: &[u8], cache_dir: Option<PathBuf>) -> Result<Vec<u8>> {
     use base_crypto::data_provider::{FetchMode, MidnightDataProvider, OutputMode};
     use ledger::dust::{DUST_EXPECTED_FILES, DustResolver};
@@ -1039,7 +1039,7 @@ fn void_local_unused<T: ?Sized>(_: &T) {}
 ///
 /// The Midnight TS SDK's `createProofProvider` calls `.check` before
 /// `.prove` for every transaction. Without this entry the embedded
-/// (in-process) prover path can't claim full ProvingProvider
+/// (in-process) prover path can't claim full `ProvingProvider`
 /// compatibility — callers would have to bypass the SDK's standard
 /// flow. With it, swapping `httpClientProofProvider` for
 /// `nativeProvingProvider(zkConfigProvider)` is a single-line drop-in.
@@ -1213,7 +1213,7 @@ fn make_zswap_resolver(cache_dir: Option<&std::path::Path>) -> Result<Arc<ZswapR
 mod tests {
     use super::*;
 
-    /// Sanity-check: every `k` in 1..=MAX_K builds a valid IR. Prints
+    /// Sanity-check: every `k` in 1..=`MAX_K` builds a valid IR. Prints
     /// the realized k / row count / chain length so we can document
     /// the realized distribution in the README. Some low-k targets are
     /// naturally floored by halo2 baseline overhead (min realized k is

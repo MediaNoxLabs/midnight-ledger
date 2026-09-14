@@ -3,19 +3,19 @@
 //! you can capture per-k timings + RSS without an interactive UI.
 //!
 //! Use:
-//!     cargo run --release --bin bench_cli -- --max-k=14
-//!     cargo run --release --bin bench_cli -- --max-k=12 --repeat=3
+//!     cargo run --release --bin `bench_cli` -- --max-k=14
+//!     cargo run --release --bin `bench_cli` -- --max-k=12 --repeat=3
 //!
 //! Flags:
 //!     --max-k=<N>      stop after k=N (default 14, the embedded-verifier ceiling)
 //!     --min-k=<N>      start at k=N (default 1)
 //!     --repeat=<N>     prove each k N times back-to-back; second+ runs
-//!                      benefit from IR_CACHE + KEY_CACHE warm-up (default 1)
-//!     --no-cache-keys  disable the process-wide KEY_CACHE — every prove runs
+//!                      benefit from `IR_CACHE` + `KEY_CACHE` warm-up (default 1)
+//!     --no-cache-keys  disable the process-wide `KEY_CACHE` — every prove runs
 //!                      keygen from scratch. Use with --repeat to time
 //!                      the cold-path floor.
 //!     --json           emit one JSON line per row instead of a table
-//!     --skip-verify    pass through to RunOpts (default: verify_after = true for k ≤ 14)
+//!     --skip-verify    pass through to `RunOpts` (default: `verify_after` = true for k ≤ 14)
 //!     --build-mmap     for each k in --min-k..=--max-k, build the
 //!                      `bls_midnight_2pN.mmap` companion file from the
 //!                      original SRS and exit. Skips proving entirely.
@@ -239,7 +239,7 @@ fn main() {
 }
 
 /// Read RSS in MiB from `/proc/self/status` (Linux/Android) or
-/// `mach_task_basic_info` (macOS). On platforms we can't probe,
+/// `mach_task_basic_info` (`macOS`). On platforms we can't probe,
 /// returns `None` — caller prints 0.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn proc_rss_mb() -> Option<u64> {
@@ -249,7 +249,7 @@ fn proc_rss_mb() -> Option<u64> {
     Some(kb / 1024)
 }
 
-/// macOS RSS via `ps -o rss=` on our own pid. Slow-ish but no
+/// `macOS` RSS via `ps -o rss=` on our own pid. Slow-ish but no
 /// libc bindings required. Good enough for a benchmark loop that
 /// runs once per k.
 #[cfg(target_os = "macos")]
@@ -274,7 +274,7 @@ fn proc_rss_mb() -> Option<u64> {
 /// `getrusage(RUSAGE_SELF).ru_maxrss` on Unix — the high-water
 /// mark of resident pages.
 ///
-/// On Linux/Android `ru_maxrss` is **kilobytes**. On macOS / iOS
+/// On Linux/Android `ru_maxrss` is **kilobytes**. On `macOS` / iOS
 /// it's **bytes** (deviation from POSIX; documented behavior).
 /// We normalise to MiB.
 ///

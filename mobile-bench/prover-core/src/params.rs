@@ -5,8 +5,8 @@ use base_crypto::data_provider::{FetchMode, MidnightDataProvider, OutputMode};
 use ledger::dust::{DUST_EXPECTED_FILES, DustResolver};
 use zswap::{ZSWAP_EXPECTED_FILES, prove::ZswapResolver};
 
-/// Wraps the existing MidnightDataProvider machinery. On first call, files
-/// listed in DUST_EXPECTED_FILES / ZSWAP_EXPECTED_FILES are downloaded into
+/// Wraps the existing `MidnightDataProvider` machinery. On first call, files
+/// listed in `DUST_EXPECTED_FILES` / `ZSWAP_EXPECTED_FILES` are downloaded into
 /// `dir`. Subsequent calls hit the cache.
 #[allow(dead_code)] // fields read by zkir/dust modules in later tasks
 pub(crate) struct ParamsCache {

@@ -7,7 +7,7 @@
 //!   bench-runner                      # default: zkir
 //!   bench-runner zkir                 # minimal assert circuit
 //!   bench-runner htc                  # hash-to-curve circuit
-//!   bench-runner ec                   # ec_mul + ec_add circuit
+//!   bench-runner ec                   # `ec_mul` + `ec_add` circuit
 //!   bench-runner all                  # runs all surfaces in order, one JSON line each
 
 use std::path::PathBuf;

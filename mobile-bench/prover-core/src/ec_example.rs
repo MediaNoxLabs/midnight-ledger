@@ -12,7 +12,7 @@ use crate::{BenchOpts, Error, ProofRun, ProverCore, Result};
 
 pub(crate) const LABEL: &str = "zkir-ec-mul-add";
 
-/// 4-input curve circuit: ec_mul + ec_mul_generator + ec_add. Mirrors
+/// 4-input curve circuit: `ec_mul` + `ec_mul_generator` + `ec_add`. Mirrors
 /// `test_ec_proof` in zkir/tests/proofs.rs:352. Witness layout produced by
 /// the IR is `[a_x, a_y, scalar, scalar_g, mul_x, mul_y, gen_x, gen_y]` —
 /// indices 4..8 are the outputs of the first two ops, which `ec_add` then
