@@ -534,17 +534,24 @@ impl<T: Zkir> ProverKey<T> {
             }
         };
 
-        // Compute the exact bytes the consumer-side `try_cache` will
-        // hash: the gzip-compressed `MidnightPK::write` output.
+        // Compute the exact bytes the consumer-side `try_cache` will hash by
+        // calling the encoder that produces them, rather than re-implementing
+        // it. `inner_serialize` is what `Serializable for ProverKey` writes for
+        // an `Initialized` key, and what the peer's `deserialize` reads back
+        // and hashes — so these bytes *are* those bytes.
+        //
+        // The previous version re-did the gzip here with a local copy of the
+        // compression level. Two copies of an encoding that must agree, with
+        // no compiler link between them: drift is silent, every lookup misses,
+        // and the multi-GiB rebuild happens anyway with nothing failing to say
+        // so. The 0.8 line solved this by routing through `Zkir::write_raw_pk`;
+        // this line has no such hook, but `inner_serialize` serves the same
+        // purpose and is the function actually on the serialization path.
+        //
+        // The lock taken above is released before this call, so re-entering it
+        // here does not deadlock.
         let mut inner_buf = Vec::new();
-        {
-            let mut writer = flate2::write::GzEncoder::new(
-                &mut inner_buf,
-                flate2::Compression::new(PK_COMPRESSION_LEVEL),
-            );
-            arc_pk.write(&mut writer, SerdeFormat::RawBytesUnchecked)?;
-            writer.finish()?;
-        }
+        self.inner_serialize(&mut inner_buf)?;
 
         let hash = persistent_hash(&inner_buf);
         if let Ok(mut c) = PK_CACHE.lock() {
@@ -599,19 +606,13 @@ impl<T: Zkir> ProverKey<T> {
             return Ok(true);
         }
 
-        // Slow path: recompute the gzip, persist atomically, warm
-        // PK_CACHE. The gzip itself is exactly the same work the
-        // base `warm_pk_cache` does — we just additionally write it
-        // out so the next process can skip it.
+        // Slow path: serialize, persist atomically, warm PK_CACHE. The
+        // encoding is the same work `warm_pk_cache` does — we just
+        // additionally write it out so the next process can skip it — so it
+        // goes through the same `inner_serialize`, not a second copy of the
+        // gzip. See the note there.
         let mut inner_buf = Vec::new();
-        {
-            let mut writer = flate2::write::GzEncoder::new(
-                &mut inner_buf,
-                flate2::Compression::new(PK_COMPRESSION_LEVEL),
-            );
-            arc_pk.write(&mut writer, SerdeFormat::RawBytesUnchecked)?;
-            writer.finish()?;
-        }
+        self.inner_serialize(&mut inner_buf)?;
 
         let hash = persistent_hash(&inner_buf);
         if let Ok(mut c) = PK_CACHE.lock() {
