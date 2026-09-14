@@ -470,9 +470,25 @@ impl<T: Zkir> ProverKey<T> {
     /// freshly-inserted entry instead of paying the multi-GiB
     /// rebuild.
     ///
-    /// At BLS12-381 / k=18 the prover-side rebuild empirically
-    /// costs ~1.3 GiB; at k=20 it scales to ~5 GiB and is the main
-    /// reason `contract-benchmark`'s k=20 dies on mobile.
+    /// # What is and is not measured
+    ///
+    /// The rebuild was observed at roughly 1.3 GiB for BLS12-381 at
+    /// k=18 during early mobile work. That figure has not been
+    /// reproduced on the current implementation and no k=20 figure was
+    /// ever taken — the ~5 GiB that used to appear here was
+    /// extrapolated from it, not measured.
+    ///
+    /// This doc previously called the rebuild *the main reason* a k=20
+    /// proof dies on mobile. The laptop sweep does not support that:
+    /// mapping the prover key is close to neutral on its own, and the
+    /// memory that actually moves at k=20 is the coset working set
+    /// (14.26 → 6.04 GiB physical footprint, and only with the coset
+    /// spill enabled). Skipping the rebuild is worth doing and is not
+    /// the dominant term.
+    ///
+    /// Numbers per `k`, host class and concurrency are being collected
+    /// separately; until then, treat the figure above as an
+    /// unreproduced observation rather than a benchmark.
     ///
     /// Returns `Ok(true)` if the key was `Initialized` and the
     /// cache was warmed; `Ok(false)` if the key was
