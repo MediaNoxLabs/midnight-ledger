@@ -67,7 +67,6 @@ fn main() {
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[cfg(not(target_arch = "wasm32"))]
-
 fn main() {
     // Wire a `tracing-subscriber::fmt` layer so the
     // `midnight_bench` per-phase events emitted by the patched
@@ -77,8 +76,7 @@ fn main() {
     // profile-and-optimise loop. `BENCH_LOG` env var lets the
     // caller override (default: only `midnight_bench=info`).
     use tracing_subscriber::EnvFilter;
-    let filter = std::env::var("BENCH_LOG")
-        .unwrap_or_else(|_| "midnight_bench=info".to_string());
+    let filter = std::env::var("BENCH_LOG").unwrap_or_else(|_| "midnight_bench=info".to_string());
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::new(filter))
         .with_target(false)
@@ -134,8 +132,7 @@ fn main() {
         let iter_col = if repeat > 1 { "iter" } else { " " };
         println!(
             "{:>3}  {:>4}  {:>8}  {:>9}  {:>9}  {:>9}  {:>10}  {:>10}  {:>10}",
-            "k", iter_col, "hashes", "keygen", "prove", "verify", "proof_b", "rss_mb",
-            "peak_mb",
+            "k", iter_col, "hashes", "keygen", "prove", "verify", "proof_b", "rss_mb", "peak_mb",
         );
     }
 
@@ -176,66 +173,68 @@ fn main() {
     }
 
     for k in min_k..=max_k {
-      for iter in 0..repeat {
-        let opts = RunOpts {
-            verify_after: !skip_verify,
-            cache_keys,
-            ..RunOpts::default()
-        };
-        let wall_start = Instant::now();
-        let result = rt.block_on(run_proof_with_opts(k, opts));
-        let wall_ms = wall_start.elapsed().as_millis() as u64;
-        match result {
-            Ok(s) => {
-                let rss_mb = proc_rss_mb().unwrap_or(0);
-                let peak_mb = proc_peak_rss_mb().unwrap_or(0);
-                if emit_json {
-                    println!(
-                        "{{\"k\":{},\"iter\":{},\"hashes\":{},\"keygen_ms\":{},\"prove_ms\":{},\"verify_ms\":{},\"verified\":{},\"proof_bytes\":{},\"wall_ms\":{},\"rss_mb\":{},\"peak_mb\":{}}}",
-                        k,
-                        iter,
-                        s.hash_chain_len,
-                        s.keygen.as_millis(),
-                        s.prove.as_millis(),
-                        s.verify.map(|d| d.as_millis() as i64).unwrap_or(-1),
-                        s.verified.map(|b| b.to_string()).unwrap_or_else(|| "null".into()),
-                        s.proof_bytes,
-                        wall_ms,
-                        rss_mb,
-                        peak_mb,
-                    );
-                } else {
-                    println!(
-                        "{:>3}  {:>4}  {:>8}  {:>7}ms  {:>7}ms  {:>7}  {:>10}  {:>9}  {:>9}",
-                        k,
-                        iter,
-                        s.hash_chain_len,
-                        s.keygen.as_millis(),
-                        s.prove.as_millis(),
-                        s.verify
-                            .map(|d| format!("{}ms", d.as_millis()))
-                            .unwrap_or_else(|| "—".into()),
-                        s.proof_bytes,
-                        format!("{rss_mb} MiB"),
-                        format!("{peak_mb} MiB"),
-                    );
+        for iter in 0..repeat {
+            let opts = RunOpts {
+                verify_after: !skip_verify,
+                cache_keys,
+                ..RunOpts::default()
+            };
+            let wall_start = Instant::now();
+            let result = rt.block_on(run_proof_with_opts(k, opts));
+            let wall_ms = wall_start.elapsed().as_millis() as u64;
+            match result {
+                Ok(s) => {
+                    let rss_mb = proc_rss_mb().unwrap_or(0);
+                    let peak_mb = proc_peak_rss_mb().unwrap_or(0);
+                    if emit_json {
+                        println!(
+                            "{{\"k\":{},\"iter\":{},\"hashes\":{},\"keygen_ms\":{},\"prove_ms\":{},\"verify_ms\":{},\"verified\":{},\"proof_bytes\":{},\"wall_ms\":{},\"rss_mb\":{},\"peak_mb\":{}}}",
+                            k,
+                            iter,
+                            s.hash_chain_len,
+                            s.keygen.as_millis(),
+                            s.prove.as_millis(),
+                            s.verify.map(|d| d.as_millis() as i64).unwrap_or(-1),
+                            s.verified
+                                .map(|b| b.to_string())
+                                .unwrap_or_else(|| "null".into()),
+                            s.proof_bytes,
+                            wall_ms,
+                            rss_mb,
+                            peak_mb,
+                        );
+                    } else {
+                        println!(
+                            "{:>3}  {:>4}  {:>8}  {:>7}ms  {:>7}ms  {:>7}  {:>10}  {:>9}  {:>9}",
+                            k,
+                            iter,
+                            s.hash_chain_len,
+                            s.keygen.as_millis(),
+                            s.prove.as_millis(),
+                            s.verify
+                                .map(|d| format!("{}ms", d.as_millis()))
+                                .unwrap_or_else(|| "—".into()),
+                            s.proof_bytes,
+                            format!("{rss_mb} MiB"),
+                            format!("{peak_mb} MiB"),
+                        );
+                    }
                 }
-            }
-            Err(e) => {
-                if emit_json {
-                    println!(
-                        "{{\"k\":{},\"iter\":{},\"error\":\"{}\",\"wall_ms\":{}}}",
-                        k,
-                        iter,
-                        e.to_string().replace('"', "\\\""),
-                        wall_ms,
-                    );
-                } else {
-                    println!("{:>3}  {:>4}  ERROR  {}", k, iter, e);
+                Err(e) => {
+                    if emit_json {
+                        println!(
+                            "{{\"k\":{},\"iter\":{},\"error\":\"{}\",\"wall_ms\":{}}}",
+                            k,
+                            iter,
+                            e.to_string().replace('"', "\\\""),
+                            wall_ms,
+                        );
+                    } else {
+                        println!("{:>3}  {:>4}  ERROR  {}", k, iter, e);
+                    }
                 }
             }
         }
-      }
     }
 }
 
