@@ -125,23 +125,27 @@ impl ParamsProverProvider for base_crypto::data_provider::MidnightDataProvider {
         // through a function whose shape is otherwise portable.
         #[cfg(not(target_family = "wasm"))]
         {
-            // Path A — mmap companion if present. The companion is a
-            // `bls_midnight_2pN.mmap` file produced by
-            // `ParamsProver::write_mmap_companion` (typically built once
-            // on a roomy desktop and pushed to the device). When found
-            // we go zero-copy: `ParamsKZG.g`/`g_lagrange` become slice
-            // views into the file mapping and the OS pages handle
-            // eviction under memory pressure. Trigger is file presence,
-            // not an env var, so the optimisation lights up
-            // automatically wherever the companion is shipped.
-            let mmap_path = self.dir.join(format!("{name}.mmap"));
-            if mmap_path.exists() {
+            // Path A — a published mmap companion. The companion is a
+            // `bls_midnight_2pN.mmap` file the cache published earlier
+            // (typically built once on a roomy desktop and pushed to the
+            // device). When found we go zero-copy: `ParamsKZG.g`/
+            // `g_lagrange` become slice views into the file mapping and
+            // the OS pages handle eviction under memory pressure. Trigger
+            // is file presence, not an env var, so the optimisation lights
+            // up automatically wherever the companion is shipped.
+            //
+            // Everything companion-shaped goes through `CompanionCache`:
+            // it is the one place that may create a companion, and it never
+            // rewrites a published inode, which is what keeps every live
+            // mapping sound (F-034).
+            let cache = CompanionCache::new(self.dir.clone());
+            if let Some(mapped) = cache.open(&name)? {
                 tracing::info!(
                     target: "midnight_bench",
                     stage = "load_mmap",
                     k = k as u64,
                 );
-                return ParamsProver::read_mmap_path(&mmap_path);
+                return Ok(mapped);
             }
 
             // Path A' — build the companion on first miss. Opt-in via
@@ -149,7 +153,9 @@ impl ParamsProverProvider for base_crypto::data_provider::MidnightDataProvider {
             // pays the 2× eager-load peak (we hold the just-parsed
             // `ParamsProver` AND write its bytes out). Useful as a
             // one-shot precompute on a desktop; the device should just
-            // ship the resulting `.mmap` files.
+            // ship the resulting `.mmap` files. Concurrent first builders
+            // are fine: the cache publishes by atomic rename with one
+            // winner, and a loser opens the winner's complete file.
             if ParamsLoadPolicy::process().build_mmap_companion {
                 tracing::info!(
                     target: "midnight_bench",
@@ -163,9 +169,7 @@ impl ParamsProverProvider for base_crypto::data_provider::MidnightDataProvider {
                     )
                     .await?;
                 let eager = ParamsProver::read(reader)?;
-                eager.write_mmap_companion(&mmap_path)?;
-                drop(eager);
-                return ParamsProver::read_mmap_path(&mmap_path);
+                return cache.open_or_build(&name, || Ok(eager));
             }
         }
 
@@ -227,12 +231,24 @@ impl ParamsProver {
     /// behind the fork's `mmap` feature there, so calling this could
     /// never have worked.
     ///
+    /// # Safety
+    ///
+    /// A mapping is only sound while the mapped file is not modified or
+    /// truncated by anyone — `memmap2::Mmap::map` states it, and a shortened
+    /// or rewritten file behind a live `&[E::G1]` is undefined behaviour, not
+    /// merely a wrong proof. This function maps **an arbitrary path**, so the
+    /// caller must guarantee that no process will write to or truncate that
+    /// file for as long as the returned value, or any clone of it, lives.
+    ///
+    /// The safe way to get a mapped `ParamsProver` is [`CompanionCache`],
+    /// which only ever maps files it published itself and never rewrites a
+    /// published inode. Use this function only for a file with an equivalent
+    /// guarantee that this crate cannot see.
+    ///
     /// # Trust boundary
     ///
-    /// **`path` must name a file this process produced, in a directory only
-    /// this process can write.** The companion is a local cache, not an
-    /// interchange format: never fetch it, never sync it between devices,
-    /// never accept one from another party.
+    /// The companion is a local cache, not an interchange format: never fetch
+    /// it, never sync it between devices, never accept one from another party.
     ///
     /// The header is validated before anything is mapped — magic, point size,
     /// every offset and count, and each block's alignment — so a malformed
@@ -241,43 +257,67 @@ impl ParamsProver {
     /// hostile file therefore produces wrong proofs rather than memory
     /// corruption, and only because every bit pattern is valid for the
     /// underlying field representation.
-    ///
-    /// The previous note here said the wallet owns the file under the app
-    /// cache directory and users cannot modify it. That is true of one
-    /// deployment; it is not a property of this function, which any consumer
-    /// can call with any path. Stating the requirement is what makes it
-    /// checkable.
     #[cfg(not(target_family = "wasm"))]
-    pub fn read_mmap_path<P: AsRef<std::path::Path>>(path: P) -> io::Result<Self> {
+    #[allow(unsafe_code)]
+    pub unsafe fn read_mmap_path<P: AsRef<std::path::Path>>(path: P) -> io::Result<Self> {
         let file = std::fs::File::open(path)?;
-        // SAFETY: read-only mmap of a file we just opened. `Mmap::map` is
-        // sound under POSIX provided no other process modifies the file while
-        // the mapping is live — a *caller* obligation, stated in this
-        // function's `# Trust boundary` section rather than assumed here.
-        //
-        // The previous note justified this by naming one deployment ("the
-        // wallet owns the file under /data/data/<app>/cache"). That is a fact
-        // about a caller, not about this function, which any consumer can call
-        // with any path. A SAFETY comment that reasons about someone else's
-        // directory layout is not checkable by the reader.
-        #[allow(unsafe_code)]
+        // SAFETY: the caller has promised (see `# Safety`) that nothing will
+        // modify or truncate this file while the mapping lives; that is the
+        // whole obligation `Mmap::map` places on us, and it is the reason this
+        // function is `unsafe` rather than documented-and-safe.
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
-        let mmap = Arc::new(mmap);
-        Ok(ParamsProver(Arc::new(ParamsKZG::read_mmap_arc(mmap)?)))
+        Ok(ParamsProver(Arc::new(ParamsKZG::read_mmap_arc(Arc::new(
+            mmap,
+        ))?)))
     }
 
-    /// Write the current params out to a companion file ready for
-    /// `read_mmap_path`. Use after a one-time eager `read` to
-    /// produce the file we then mmap on every subsequent run.
+    /// Publish the current params as a companion file at `path`, ready for
+    /// [`CompanionCache::open`]. Use after a one-time eager `read` to produce
+    /// the file that is then mapped on every subsequent run.
+    ///
+    /// **A published companion is never rewritten.** The bytes go to a
+    /// private temp file in `path`'s directory, are validated and synced, and
+    /// land under `path` by one atomic rename that refuses to replace an
+    /// existing file. If `path` already exists this returns
+    /// [`io::ErrorKind::AlreadyExists`] and leaves it untouched — some process
+    /// may hold a mapping of that inode, and truncating it under them is the
+    /// fault this crate does not commit (F-034). A caller that only needs *a*
+    /// companion to exist should use [`CompanionCache::open_or_build`].
     ///
     /// Host-only for the same reason as [`read_mmap_path`](Self::read_mmap_path):
     /// writing a companion nothing on this target can map back is not a
     /// useful thing to be able to do.
     #[cfg(not(target_family = "wasm"))]
     pub fn write_mmap_companion<P: AsRef<std::path::Path>>(&self, path: P) -> io::Result<()> {
-        let mut file = std::fs::File::create(path)?;
-        self.0.write_mmap_companion(&mut file)?;
-        Ok(())
+        let path = path.as_ref();
+        let dir = path
+            .parent()
+            .filter(|d| !d.as_os_str().is_empty())
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "companion path must have a parent directory",
+                )
+            })?;
+        let file_name = path.file_name().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "companion path must name a file",
+            )
+        })?;
+        match CompanionCache::new(dir)
+            .publish_file(file_name, |file| self.0.write_mmap_companion(file))?
+        {
+            PublishOutcome::Published => Ok(()),
+            PublishOutcome::AlreadyPublished => Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!(
+                    "companion {} is already published; a published companion is never rewritten \
+                     (it may be mapped) — use CompanionCache::open_or_build to reuse it",
+                    path.display()
+                ),
+            )),
+        }
     }
 
     /// Reads the prover parameters from a seekable data stream,
@@ -300,6 +340,245 @@ impl ParamsProver {
 
     pub(crate) fn as_verifier(&self) -> ParamsVerifier {
         ParamsVerifier(Arc::new(self.0.verifier_params()))
+    }
+}
+
+/// What [`CompanionCache::publish_file`] did.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PublishOutcome {
+    /// Our bytes were validated and now sit under the final name.
+    Published,
+    /// Another publisher won the rename; our temp file was discarded and the
+    /// winner's complete file is the one to open.
+    AlreadyPublished,
+}
+
+/// The one safe way to create and map SRS companion files.
+///
+/// A companion (`<name>.mmap`) is a memory-mapped cache of an SRS. Mapping is
+/// only sound while the mapped file is never modified or truncated, so the
+/// cache enforces the discipline the rest of this crate relies on:
+///
+/// - **A published inode is never rewritten.** Bytes go to a uniquely named
+///   private temp file in the same directory, are validated by mapping them
+///   through the same header checks a reader performs, are `sync_all`ed, and
+///   then reach the final name by *one* atomic rename that refuses to replace
+///   an existing file (`persist_noclobber`). Nothing this crate does can
+///   shorten a file some other mapping holds.
+/// - **Concurrent first builders have one winner.** Every builder writes its
+///   own temp file; the first rename wins, every other publisher gets
+///   [`PublishOutcome::AlreadyPublished`], drops its temp file and opens the
+///   winner's complete file. No lock file, no partial header: a reader that
+///   sees the final name sees a complete, validated file, because the name
+///   appears only after the rename.
+/// - **Crash recovery is cleanup, not repair.** A crash before the rename
+///   leaves a `.<name>.mmap.tmp-*` file behind; the next publisher removes
+///   temp files older than [`Self::STALE_TEMP_AGE`] before it starts. A crash
+///   after the rename left a complete file. The directory entry is fsynced
+///   after publication on Unix so the rename itself is durable.
+///
+/// # Trust boundary
+///
+/// The guarantee is against *this crate*: nothing here writes to a published
+/// companion. It cannot be a guarantee against every other process. The
+/// cache directory must be one where only cooperating code writes — the
+/// application's own cache directory, not a shared or user-editable one. That
+/// is the same trust already placed in the SRS files beside the companions;
+/// a companion fetched, synced, or accepted from another party is outside it.
+/// Mapping an arbitrary path that offers no such guarantee is
+/// [`ParamsProver::read_mmap_path`], which is `unsafe` for exactly this
+/// reason.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Clone, Debug)]
+pub struct CompanionCache {
+    dir: std::path::PathBuf,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl CompanionCache {
+    /// Temp files older than this are treated as left by a crashed
+    /// publisher and removed before a new publication starts. An hour is far
+    /// beyond any companion write; a live publisher's temp file is seconds
+    /// old.
+    pub const STALE_TEMP_AGE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+    const TEMP_INFIX: &'static str = ".tmp-";
+
+    /// A cache rooted at `dir`. See the type-level trust boundary for what
+    /// `dir` must be.
+    pub fn new(dir: impl Into<std::path::PathBuf>) -> Self {
+        Self { dir: dir.into() }
+    }
+
+    /// The directory companions are published into.
+    pub fn dir(&self) -> &std::path::Path {
+        &self.dir
+    }
+
+    /// Where the companion for the SRS called `name` lives once published.
+    pub fn published_path(&self, name: &str) -> std::path::PathBuf {
+        self.dir.join(Self::file_name(name))
+    }
+
+    fn file_name(name: &str) -> String {
+        format!("{name}.mmap")
+    }
+
+    /// The prefix every temp file for `file_name` carries: hidden, and unique
+    /// enough that a sweep cannot touch anything else in the directory.
+    fn temp_prefix(file_name: &std::ffi::OsStr) -> String {
+        format!(".{}{}", file_name.to_string_lossy(), Self::TEMP_INFIX)
+    }
+
+    /// Open the published companion for `name`, or `Ok(None)` when none is
+    /// published yet. A file that exists is complete by construction; a file
+    /// that fails validation is reported as `InvalidData`, never mapped.
+    pub fn open(&self, name: &str) -> io::Result<Option<ParamsProver>> {
+        let path = self.published_path(name);
+        match std::fs::File::open(&path) {
+            Ok(file) => Self::map_published(&file).map(Some),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Open the published companion for `name`, building and publishing it
+    /// first when there is none. `build` produces the eager parameters to
+    /// publish; it may run in more than one process at once, and only one
+    /// result is published — the others are discarded and their callers open
+    /// the winner's file.
+    pub fn open_or_build(
+        &self,
+        name: &str,
+        build: impl FnOnce() -> io::Result<ParamsProver>,
+    ) -> io::Result<ParamsProver> {
+        if let Some(mapped) = self.open(name)? {
+            return Ok(mapped);
+        }
+        let eager = build()?;
+        let file_name = Self::file_name(name);
+        self.publish_file(std::ffi::OsStr::new(&file_name), |file| {
+            eager.0.write_mmap_companion(file)
+        })?;
+        drop(eager);
+        self.open(name)?.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "companion {} disappeared between publication and open",
+                    self.published_path(name).display()
+                ),
+            )
+        })
+    }
+
+    /// Publish a companion under `file_name` in this cache's directory from
+    /// whatever `write` produces: private same-directory temp file →
+    /// validation by the reader's own header checks → `sync_all` →
+    /// `persist_noclobber`. On any failure nothing is published and the temp
+    /// file is removed. Returns [`PublishOutcome::AlreadyPublished`] when the
+    /// final name already exists — before or during this call — and leaves
+    /// that file untouched.
+    pub fn publish_file(
+        &self,
+        file_name: &std::ffi::OsStr,
+        write: impl FnOnce(&mut std::fs::File) -> io::Result<()>,
+    ) -> io::Result<PublishOutcome> {
+        let final_path = self.dir.join(file_name);
+        if final_path.exists() {
+            return Ok(PublishOutcome::AlreadyPublished);
+        }
+        self.sweep_stale_temps(file_name);
+
+        let prefix = Self::temp_prefix(file_name);
+        let mut temp = tempfile::Builder::new()
+            .prefix(&prefix)
+            .tempfile_in(&self.dir)?;
+        // `NamedTempFile` removes the file on drop, so every early return
+        // below — including the `?`s — leaves no temp file behind.
+        write(temp.as_file_mut())?;
+        temp.as_file().sync_all()?;
+        Self::validate(temp.as_file())?;
+
+        match temp.persist_noclobber(&final_path) {
+            Ok(_) => {
+                self.sync_dir();
+                Ok(PublishOutcome::Published)
+            }
+            Err(e) if e.error.kind() == io::ErrorKind::AlreadyExists => {
+                // `e.file` is the temp file; dropping it removes it.
+                Ok(PublishOutcome::AlreadyPublished)
+            }
+            Err(e) => Err(e.error),
+        }
+    }
+
+    /// Run the reader's header validation over a file we alone hold, before
+    /// it can be published. A companion that would fail to open is never
+    /// given a name a reader could find.
+    #[allow(unsafe_code)]
+    fn validate(file: &std::fs::File) -> io::Result<()> {
+        // SAFETY: `file` is our private, unpublished temp file — no other
+        // party has its name, and this function holds the only mapping for
+        // the duration of the check. The mapping is dropped before the rename.
+        let mmap = unsafe { memmap2::Mmap::map(file)? };
+        ParamsKZG::<Bls12>::read_mmap_arc(Arc::new(mmap)).map(|_| ())
+    }
+
+    /// Map a companion this cache published. The soundness argument is the
+    /// cache's: nothing in this crate rewrites a published inode, and the
+    /// directory is one where only cooperating code writes (type-level trust
+    /// boundary).
+    #[allow(unsafe_code)]
+    fn map_published(file: &std::fs::File) -> io::Result<ParamsProver> {
+        // SAFETY: see above — published companions are immutable by
+        // construction of this type, which is the invariant `Mmap::map` asks
+        // for; the cache directory's write access is the stated trust boundary.
+        let mmap = unsafe { memmap2::Mmap::map(file)? };
+        Ok(ParamsProver(Arc::new(ParamsKZG::read_mmap_arc(Arc::new(
+            mmap,
+        ))?)))
+    }
+
+    /// Remove temp files for `file_name` left by a publisher that did not
+    /// reach its rename. Age-gated so a live publisher's file is never
+    /// touched; failures are ignored — a stale temp file is harmless, and the
+    /// publication that follows does not depend on the sweep.
+    fn sweep_stale_temps(&self, file_name: &std::ffi::OsStr) {
+        let prefix = Self::temp_prefix(file_name);
+        let Ok(entries) = std::fs::read_dir(&self.dir) else {
+            return;
+        };
+        let now = std::time::SystemTime::now();
+        for entry in entries.flatten() {
+            let candidate = entry.file_name();
+            if !candidate.to_string_lossy().starts_with(&prefix) {
+                continue;
+            }
+            let stale = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|modified| now.duration_since(modified).ok())
+                .is_some_and(|age| age >= Self::STALE_TEMP_AGE);
+            if stale {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+
+    /// Make the directory entry durable after a publication. Best effort:
+    /// filesystems that cannot fsync a directory still have the complete file,
+    /// only its name may not survive a power loss — which the next publisher
+    /// repairs by publishing again.
+    fn sync_dir(&self) {
+        #[cfg(unix)]
+        {
+            if let Ok(dir) = std::fs::File::open(&self.dir) {
+                let _ = dir.sync_all();
+            }
+        }
     }
 }
 
@@ -1184,3 +1463,273 @@ pub type ProvingError = anyhow::Error;
 /// the public API, although it may be assumed to be [`Debug`]` +
 /// `[`Display`](std::fmt::Display).
 pub type VerifyingError = anyhow::Error;
+
+/// Tests for the companion cache's publication protocol (F-034 / MLG-009).
+///
+/// Every test uses a tiny real SRS (`k = 4`) so the header validation and the
+/// mapping are the production code paths, not stubs. What cannot be injected
+/// portably is a failing `fsync`: the structure covers it — `sync_all` runs
+/// before the rename and any error propagates through `?`, leaving nothing
+/// published — and the short-write and rename-failure tests exercise the same
+/// early-return path.
+#[cfg(all(test, not(target_family = "wasm")))]
+mod companion_cache_tests {
+    use super::*;
+    use std::sync::Barrier;
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+    const NAME: &str = "bls_test_2p4";
+
+    fn small_params() -> ParamsProver {
+        ParamsProver(Arc::new(ParamsKZG::<Bls12>::unsafe_setup(
+            4,
+            rand::rngs::OsRng,
+        )))
+    }
+
+    fn digest(p: &ParamsProver) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        p.0.write_custom(&mut bytes, SerdeFormat::RawBytesUnchecked)
+            .expect("serialise params");
+        bytes
+    }
+
+    fn temps_in(dir: &std::path::Path) -> Vec<String> {
+        std::fs::read_dir(dir)
+            .expect("read cache dir")
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".tmp-"))
+            .collect()
+    }
+
+    #[test]
+    fn nothing_published_opens_as_none() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache = CompanionCache::new(dir.path());
+        assert!(cache.open(NAME).expect("open").is_none());
+        assert!(!cache.published_path(NAME).exists());
+    }
+
+    #[test]
+    fn concurrent_first_builders_share_one_complete_publication() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let source = small_params();
+        let expected = digest(&source);
+        let builds = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(Barrier::new(8));
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let cache = CompanionCache::new(dir.path());
+                let source = source.clone();
+                let builds = Arc::clone(&builds);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    cache.open_or_build(NAME, || {
+                        builds.fetch_add(1, AtomicOrdering::SeqCst);
+                        Ok(source)
+                    })
+                })
+            })
+            .collect();
+        for h in handles {
+            let mapped = h.join().expect("thread").expect("open_or_build");
+            assert_eq!(digest(&mapped), expected, "every caller sees the same SRS");
+        }
+        assert!(builds.load(AtomicOrdering::SeqCst) >= 1);
+        assert!(cache_has_exactly_one_published(dir.path()));
+        assert!(
+            temps_in(dir.path()).is_empty(),
+            "no temp file survives publication"
+        );
+    }
+
+    fn cache_has_exactly_one_published(dir: &std::path::Path) -> bool {
+        std::fs::read_dir(dir)
+            .expect("read cache dir")
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".mmap"))
+            .count()
+            == 1
+    }
+
+    #[test]
+    fn a_published_companion_is_never_rewritten_while_mapped() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache = CompanionCache::new(dir.path());
+        let first = small_params();
+        let mapped = cache
+            .open_or_build(NAME, || Ok(first.clone()))
+            .expect("first publication");
+        let path = cache.published_path(NAME);
+        let bytes_before = std::fs::read(&path).expect("read companion");
+
+        // A second, different SRS asks to be written to the same path while
+        // `mapped` is alive. It must be refused without touching the inode.
+        let second = small_params();
+        let err = second
+            .write_mmap_companion(&path)
+            .expect_err("a published companion must not be rewritten");
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists, "{err}");
+        assert_eq!(
+            std::fs::read(&path).expect("re-read"),
+            bytes_before,
+            "bytes unchanged"
+        );
+        assert_eq!(
+            digest(&mapped),
+            digest(&first),
+            "the live mapping still reads the first SRS"
+        );
+        assert!(temps_in(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn a_reader_racing_a_builder_sees_a_complete_file_or_none() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let source = small_params();
+        let expected = digest(&source);
+        let barrier = Arc::new(Barrier::new(5));
+        let builder = {
+            let cache = CompanionCache::new(dir.path());
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                cache.open_or_build(NAME, || Ok(source))
+            })
+        };
+        let readers: Vec<_> = (0..4)
+            .map(|_| {
+                let cache = CompanionCache::new(dir.path());
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    // Spin until the name appears; every success must be a
+                    // complete, validated file — `open` never returns a
+                    // partial one because the name is created by the rename.
+                    for _ in 0..10_000 {
+                        match cache.open(NAME) {
+                            Ok(Some(p)) => return Ok(p),
+                            Ok(None) => std::thread::yield_now(),
+                            Err(e) => return Err(e),
+                        }
+                    }
+                    Err(io::Error::other("reader gave up"))
+                })
+            })
+            .collect();
+        builder.join().expect("builder thread").expect("build");
+        for r in readers {
+            let p = r
+                .join()
+                .expect("reader thread")
+                .expect("reader must not see a partial file");
+            assert_eq!(digest(&p), expected);
+        }
+    }
+
+    #[test]
+    fn a_write_failure_publishes_nothing_and_leaves_no_temp() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache = CompanionCache::new(dir.path());
+        let outcome = cache.publish_file(std::ffi::OsStr::new("k4.mmap"), |file| {
+            file.write_all(b"partial")?;
+            Err(io::Error::other("injected write failure"))
+        });
+        let err = outcome.expect_err("injected failure must propagate");
+        assert_eq!(err.to_string(), "injected write failure");
+        assert!(!dir.path().join("k4.mmap").exists());
+        assert!(temps_in(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn a_short_write_fails_validation_and_publishes_nothing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache = CompanionCache::new(dir.path());
+        let full = {
+            let mut buf = Vec::new();
+            small_params()
+                .0
+                .write_mmap_companion(&mut buf)
+                .expect("write");
+            buf
+        };
+        let half = &full[..full.len() / 2];
+        let err = cache
+            .publish_file(std::ffi::OsStr::new("k4.mmap"), |file| file.write_all(half))
+            .expect_err("a truncated companion must not be published");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData, "{err}");
+        assert!(!dir.path().join("k4.mmap").exists());
+        assert!(temps_in(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn a_rename_failure_publishes_nothing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache_dir = dir.path().join("cache");
+        std::fs::create_dir(&cache_dir).expect("mkdir");
+        let cache = CompanionCache::new(&cache_dir);
+        let cache_dir_for_hook = cache_dir.clone();
+        let err = cache
+            .publish_file(std::ffi::OsStr::new("k4.mmap"), move |file| {
+                small_params().0.write_mmap_companion(file)?;
+                // Pull the directory out from under the rename: on this
+                // platform an open temp file survives, the rename cannot.
+                std::fs::remove_dir_all(&cache_dir_for_hook)
+            })
+            .expect_err("the rename must fail");
+        assert_ne!(err.kind(), io::ErrorKind::AlreadyExists, "{err}");
+        assert!(!cache_dir.join("k4.mmap").exists());
+    }
+
+    #[test]
+    fn an_interrupted_publication_is_swept_and_a_fresh_one_is_not() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache = CompanionCache::new(dir.path());
+        let prefix = CompanionCache::temp_prefix(std::ffi::OsStr::new(&format!("{NAME}.mmap")));
+
+        // A crashed publisher from long ago: garbage bytes, two hours old.
+        let stale = dir.path().join(format!("{prefix}stale"));
+        std::fs::write(&stale, b"left behind by a crash").expect("write stale");
+        let two_hours_ago =
+            std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 60 * 60);
+        std::fs::File::options()
+            .write(true)
+            .open(&stale)
+            .expect("open stale")
+            .set_times(std::fs::FileTimes::new().set_modified(two_hours_ago))
+            .expect("age the stale temp");
+        // A publisher that is alive right now: must be left alone.
+        let fresh = dir.path().join(format!("{prefix}fresh"));
+        std::fs::write(&fresh, b"in progress").expect("write fresh");
+
+        let source = small_params();
+        let mapped = cache
+            .open_or_build(NAME, || Ok(source.clone()))
+            .expect("publication succeeds despite leftovers");
+        assert_eq!(digest(&mapped), digest(&source));
+        assert!(!stale.exists(), "the stale temp file is swept");
+        assert!(
+            fresh.exists(),
+            "a live publisher's temp file is not touched"
+        );
+        assert!(cache.published_path(NAME).exists());
+    }
+
+    #[test]
+    fn open_or_build_reuses_a_publication_without_building() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache = CompanionCache::new(dir.path());
+        let source = small_params();
+        cache
+            .open_or_build(NAME, || Ok(source.clone()))
+            .expect("first");
+        let reused = cache
+            .open_or_build(NAME, || {
+                panic!("the builder must not run when a companion is published")
+            })
+            .expect("second");
+        assert_eq!(digest(&reused), digest(&source));
+    }
+}

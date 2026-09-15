@@ -80,6 +80,11 @@ midnight-proofs = { version = "^0.7.0", features = ["disk-spill"] }
 # Lives in this table because it is exactly as host-only as the feature
 # above: without `mmap` there is no `read_mmap_arc` to hand it to.
 memmap2 = "0.9"
+# A companion is published, never written in place: bytes go to a private
+# same-directory temp file (`tempfile::NamedTempFile`), are validated and
+# synced, then land under the final name by `persist_noclobber` — one atomic
+# rename that refuses to replace an inode another mapping may hold (F-034).
+tempfile = "3.20"
 
 [dev-dependencies]
 midnight-transient-crypto = { path = ".", features = ["proptest"] }
