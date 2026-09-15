@@ -100,16 +100,37 @@ def wait_http(url: str, timeout_s: float) -> tuple[bool, float]:
     return False, time.perf_counter() - started
 
 
-class Sampler(threading.Thread):
-    """Samples `docker stats` and spill-directory size until stopped."""
+def volume_bytes(volume: str) -> int | None:
+    """Bytes used in a named volume, read through a throwaway helper container.
 
-    def __init__(self, name: str, spill_dir: Path | None, interval: float = 0.5) -> None:
+    The images under test are distroless, so the size cannot be read from
+    inside them; a bind mount would be readable from the host, but Docker
+    Desktop bind mounts (virtiofs) make the prover's spill temp-file creation
+    fail with ENOENT, so spill lives on a named volume instead."""
+    try:
+        r = sh("docker", "run", "--rm", "-v", f"{volume}:/spill:ro", "alpine", "du", "-sb", "/spill", check=False, timeout=20)
+    except subprocess.TimeoutExpired:
+        return None
+    head = r.stdout.split()
+    return int(head[0]) if head and head[0].isdigit() else None
+
+
+class Sampler(threading.Thread):
+    """Samples `docker stats` and spill-volume size until stopped."""
+
+    def __init__(self, name: str, spill_volume: str | None, interval: float = 0.5, spill_every: int = 4) -> None:
         super().__init__(daemon=True)
-        self.name, self.spill_dir, self.interval = name, spill_dir, interval
+        self.name, self.spill_volume, self.interval = name, spill_volume, interval
+        self.spill_every = spill_every  # du through a helper container costs ~0.3 s; sample it less often
         self.stop = threading.Event()
         self.mem_max = 0
         self.cpu_max = 0.0
         self.spill_max = 0
+        # Block I/O from `docker stats` (cumulative for the container). Spill
+        # temp files are created and unlinked, so `du` on the volume cannot
+        # see them; the container's block writes can.
+        self.blk_read = 0
+        self.blk_write = 0
         self.samples = 0
 
     @staticmethod
@@ -129,12 +150,17 @@ class Sampler(threading.Thread):
                     d = json.loads(r.stdout.strip().splitlines()[-1])
                     self.mem_max = max(self.mem_max, self._bytes(d.get("MemUsage", "0B")))
                     self.cpu_max = max(self.cpu_max, float(d.get("CPUPerc", "0%").rstrip("%") or 0))
+                    blk = d.get("BlockIO", "0B / 0B").split("/")
+                    if len(blk) == 2:
+                        self.blk_read = max(self.blk_read, self._bytes(blk[0]))
+                        self.blk_write = max(self.blk_write, self._bytes(blk[1]))
                     self.samples += 1
             except (subprocess.TimeoutExpired, ValueError, json.JSONDecodeError):
                 pass
-            if self.spill_dir is not None and self.spill_dir.exists():
-                total = sum(p.stat().st_size for p in self.spill_dir.rglob("*") if p.is_file())
-                self.spill_max = max(self.spill_max, total)
+            if self.spill_volume is not None and self.samples % self.spill_every == 0:
+                total = volume_bytes(self.spill_volume)
+                if total is not None:
+                    self.spill_max = max(self.spill_max, total)
 
 
 def post(url: str, body: bytes, timeout: float) -> tuple[int, bytes, float, str | None]:
@@ -170,8 +196,14 @@ def run_cell(a: argparse.Namespace, k: int, profile: str) -> dict[str, Any]:
     vk = payload_dir / f"k{k}-vk.bin"
     name = f"mlg004-{a.label}-{profile}-k{k}-{int(time.time())}"
     run_dir = Path(a.work_dir) / name
-    spill = run_dir / "spill"
-    spill.mkdir(parents=True, exist_ok=True)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    # Spill goes on a named volume (ext4 inside the VM), never a bind mount:
+    # on Docker Desktop a bind-mounted spill directory makes every PK-spill
+    # key load fail with `Could not init pk: No such file or directory` and the
+    # server answers 400 to a valid request. tmpfs would work but is
+    # memory-backed, which defeats what spill is for.
+    spill_volume = f"{name}-spill"
+    sh("docker", "volume", "create", spill_volume, check=False)
     port = a.port
 
     row: dict[str, Any] = {
@@ -188,6 +220,7 @@ def run_cell(a: argparse.Namespace, k: int, profile: str) -> dict[str, Any]:
         "job_capacity": a.job_capacity,
         "job_timeout_s": a.job_timeout,
         "memory_limit": a.memory or "unconstrained",
+        "spill_backing": "docker-volume",
         "cold_mode": "cold-empty" if a.cold_empty else "cold-preseeded",
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
@@ -201,7 +234,7 @@ def run_cell(a: argparse.Namespace, k: int, profile: str) -> dict[str, Any]:
         "RUST_LOG": "info",
         **PROFILES[profile],
     }
-    cmd = ["docker", "run", "-d", "--name", name, "-p", f"{port}:{port}", "-v", f"{spill}:/spill"]
+    cmd = ["docker", "run", "-d", "--name", name, "-p", f"{port}:{port}", "-v", f"{spill_volume}:/spill"]
     if not a.cold_empty:
         # Pre-seeded params: mount them and tell the server not to fetch the
         # published zswap/dust keys at start — the request carries its own
@@ -225,7 +258,7 @@ def run_cell(a: argparse.Namespace, k: int, profile: str) -> dict[str, Any]:
         return row
     row["container_start_s"] = time.perf_counter() - t0
 
-    sampler = Sampler(name, spill)
+    sampler = Sampler(name, spill_volume)
     sampler.start()
     try:
         ok, t_health = wait_http(f"http://127.0.0.1:{port}/health", a.ready_timeout)
@@ -285,6 +318,8 @@ def run_cell(a: argparse.Namespace, k: int, profile: str) -> dict[str, Any]:
         row["peak_cpu_percent_docker_stats"] = sampler.cpu_max
         row["stats_samples"] = sampler.samples
         row["spill_high_water_bytes"] = sampler.spill_max
+        row["block_io_read_bytes"] = sampler.blk_read
+        row["block_io_write_bytes"] = sampler.blk_write
         row.update(cgroup_peak_and_events(name))
         inspect = sh("docker", "inspect", "--format", "{{.State.OOMKilled}} {{.State.ExitCode}} {{.State.Status}}", name, check=False).stdout.split()
         if len(inspect) == 3:
@@ -299,8 +334,10 @@ def run_cell(a: argparse.Namespace, k: int, profile: str) -> dict[str, Any]:
         row["log_mentions_fallback"] = ("falling back to heap" in text)
         (run_dir / "container.log").write_text(text)
         sh("docker", "rm", "-f", name, check=False)
-        if not a.keep_spill:
-            shutil.rmtree(spill, ignore_errors=True)
+        if a.keep_spill:
+            row["spill_volume"] = spill_volume
+        else:
+            sh("docker", "volume", "rm", "-f", spill_volume, check=False)
     return row
 
 

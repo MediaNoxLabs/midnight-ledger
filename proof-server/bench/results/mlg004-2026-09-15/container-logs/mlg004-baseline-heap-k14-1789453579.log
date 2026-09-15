@@ -1,0 +1,84 @@
+[2m2026-09-15T06:26:20.086200Z[0m [32m INFO[0m [2mmidnight_proof_server[0m[2m:[0m Ensuring zswap key material is available...
+[2m2026-09-15T06:26:20.086813Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing public parameters for k=10. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:20.090678Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing public parameters for k=11. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:20.094509Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing public parameters for k=12. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:20.098332Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing public parameters for k=13. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:20.101127Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing public parameters for k=14. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:20.107593Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing public parameters for k=15. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:20.117563Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing zero-knowledge proving key for Zswap inputs. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:20.120412Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing zero-knowledge proving key for Zswap outputs. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:20.123235Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing zero-knowledge proving key for Zswap signing operations. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:20.125997Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing zero-knowledge proving key for Dust spends. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:22.094391Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=10 - finished.
+[2m2026-09-15T06:26:22.094416Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=10 - verified correct.
+[2m2026-09-15T06:26:22.896278Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=11 - finished.
+[2m2026-09-15T06:26:22.896299Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=11 - verified correct.
+[2m2026-09-15T06:26:24.214098Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=12 - finished.
+[2m2026-09-15T06:26:24.214130Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=12 - verified correct.
+[2m2026-09-15T06:26:26.385441Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'bls_midnight_2p15' - 1864184 / 6291844 bytes downloaded
+[2m2026-09-15T06:26:26.437285Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'bls_midnight_2p14' - 1025848 / 3146116 bytes downloaded
+[2m2026-09-15T06:26:26.467286Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/sign.prover' - 1993484 / 2814823 bytes downloaded
+[2m2026-09-15T06:26:26.483056Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'dust/10/spend.prover' - 1126626 / 2175878 bytes downloaded
+[2m2026-09-15T06:26:26.592732Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/spend.prover' - 1274360 / 11020001 bytes downloaded
+[2m2026-09-15T06:26:27.166438Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'bls_midnight_2p13' - 1553634 / 1573252 bytes downloaded
+[2m2026-09-15T06:26:27.417930Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge proving key for Zswap signing operations - finished.
+[2m2026-09-15T06:26:27.417965Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge proving key for Zswap signing operations - verified correct.
+[2m2026-09-15T06:26:27.423130Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing zero-knowledge verifying key for Zswap signing operations. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:27.574474Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=13 - finished.
+[2m2026-09-15T06:26:27.574500Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=13 - verified correct.
+[2m2026-09-15T06:26:28.297986Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/output.prover' - 731362 / 5730182 bytes downloaded
+[2m2026-09-15T06:26:28.478760Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge proving key for Dust spends - finished.
+[2m2026-09-15T06:26:28.478787Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge proving key for Dust spends - verified correct.
+[2m2026-09-15T06:26:28.485379Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing zero-knowledge verifying key for Dust spends. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:28.617123Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge verifying key for Zswap signing operations - finished.
+[2m2026-09-15T06:26:28.617151Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge verifying key for Zswap signing operations - verified correct.
+[2m2026-09-15T06:26:28.618966Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing ZKIR source for Zswap signing operations. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:29.470455Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge verifying key for Dust spends - finished.
+[2m2026-09-15T06:26:29.470474Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge verifying key for Dust spends - verified correct.
+[2m2026-09-15T06:26:29.471757Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing ZKIR source for Dust spends. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:29.727674Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching ZKIR source for Zswap signing operations - finished.
+[2m2026-09-15T06:26:29.727750Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching ZKIR source for Zswap signing operations - verified correct.
+[2m2026-09-15T06:26:30.649248Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching ZKIR source for Dust spends - finished.
+[2m2026-09-15T06:26:30.649281Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching ZKIR source for Dust spends - verified correct.
+[2m2026-09-15T06:26:31.367280Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=15 - finished.
+[2m2026-09-15T06:26:31.367321Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=15 - verified correct.
+[2m2026-09-15T06:26:31.470330Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'bls_midnight_2p14' - 2636758 / 3146116 bytes downloaded
+[2m2026-09-15T06:26:31.711156Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/spend.prover' - 3109368 / 11020001 bytes downloaded
+[2m2026-09-15T06:26:33.306640Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/output.prover' - 1994190 / 5730182 bytes downloaded
+[2m2026-09-15T06:26:33.458808Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=14 - finished.
+[2m2026-09-15T06:26:33.458846Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=14 - verified correct.
+[2m2026-09-15T06:26:36.735188Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/spend.prover' - 4747768 / 11020001 bytes downloaded
+[2m2026-09-15T06:26:38.395920Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/output.prover' - 3861966 / 5730182 bytes downloaded
+[2m2026-09-15T06:26:41.746942Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/spend.prover' - 6648312 / 11020001 bytes downloaded
+[2m2026-09-15T06:26:42.819181Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge proving key for Zswap outputs - finished.
+[2m2026-09-15T06:26:42.819202Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge proving key for Zswap outputs - verified correct.
+[2m2026-09-15T06:26:42.824913Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing zero-knowledge verifying key for Zswap outputs. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:43.790427Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge verifying key for Zswap outputs - finished.
+[2m2026-09-15T06:26:43.790451Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge verifying key for Zswap outputs - verified correct.
+[2m2026-09-15T06:26:43.793464Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing ZKIR source for Zswap outputs. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:44.795429Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching ZKIR source for Zswap outputs - finished.
+[2m2026-09-15T06:26:44.795456Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching ZKIR source for Zswap outputs - verified correct.
+[2m2026-09-15T06:26:46.772914Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/spend.prover' - 10088952 / 11020001 bytes downloaded
+[2m2026-09-15T06:26:47.808536Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge proving key for Zswap inputs - finished.
+[2m2026-09-15T06:26:47.808556Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge proving key for Zswap inputs - verified correct.
+[2m2026-09-15T06:26:47.818772Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing zero-knowledge verifying key for Zswap inputs. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:48.709666Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge verifying key for Zswap inputs - finished.
+[2m2026-09-15T06:26:48.709695Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge verifying key for Zswap inputs - verified correct.
+[2m2026-09-15T06:26:48.712245Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing ZKIR source for Zswap inputs. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:49.729959Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching ZKIR source for Zswap inputs - finished.
+[2m2026-09-15T06:26:49.729979Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching ZKIR source for Zswap inputs - verified correct.
+[2m2026-09-15T06:26:49.732830Z[0m [32m INFO[0m [2mactix_server::builder[0m[2m:[0m starting 12 workers
+[2m2026-09-15T06:26:49.732847Z[0m [32m INFO[0m [2mactix_server::server[0m[2m:[0m Actix runtime found; starting in Actix runtime
+[2m2026-09-15T06:26:49.732850Z[0m [32m INFO[0m [2mactix_server::server[0m[2m:[0m starting service: "actix-web-service-0.0.0.0:6311", workers: 12, listening on: 0.0.0.0:6311
+[2m2026-09-15T06:26:49.802710Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 GET /health HTTP/1.1; took 0.000073s
+[2m2026-09-15T06:26:49.804246Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 GET /ready HTTP/1.1; took 0.000025s
+[2m2026-09-15T06:26:49.805822Z[0m [32m INFO[0m [2mmidnight_proof_server::endpoints[0m[2m:[0m Starting to process request for /prove...
+[2m2026-09-15T06:26:50.703223Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 POST /prove HTTP/1.1; took 0.897418s
+[2m2026-09-15T06:26:50.742033Z[0m [32m INFO[0m [2mmidnight_proof_server::endpoints[0m[2m:[0m Starting to process request for /prove...
+[2m2026-09-15T06:26:51.441403Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 POST /prove HTTP/1.1; took 0.699396s
+[2m2026-09-15T06:26:51.443205Z[0m [32m INFO[0m [2mmidnight_proof_server::endpoints[0m[2m:[0m Starting to process request for /prove...
+[2m2026-09-15T06:26:52.131682Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 POST /prove HTTP/1.1; took 0.688495s
+[2m2026-09-15T06:26:52.133427Z[0m [32m INFO[0m [2mmidnight_proof_server::endpoints[0m[2m:[0m Starting to process request for /prove...
+[2m2026-09-15T06:26:52.818499Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 POST /prove HTTP/1.1; took 0.685088s
+[2m2026-09-15T06:26:52.854148Z[0m [32m INFO[0m [2mmidnight_proof_server::endpoints[0m[2m:[0m Starting to process request for /prove...
+[2m2026-09-15T06:26:53.541013Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 POST /prove HTTP/1.1; took 0.686892s
