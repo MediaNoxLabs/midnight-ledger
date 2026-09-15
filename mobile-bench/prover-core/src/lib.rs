@@ -22,8 +22,11 @@ pub type Result<T> = std::result::Result<T, Error>;
 mod ec_example;
 mod htc_example;
 mod params;
+pub mod payload;
 mod resolver;
 mod zkir_example;
+
+pub use payload::{GeneratedPayload, build_payload, verify_response};
 
 // The HTTP wrapper is purely feature-gated now. The earlier
 // `not(target_os = "android")` guard reflected an outdated belief

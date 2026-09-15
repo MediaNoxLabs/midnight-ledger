@@ -1,13 +1,12 @@
 #![cfg(feature = "proof-server-http")]
 
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ledger::structure::{ProofPreimageVersioned, ProofVersioned};
+use ledger::structure::ProofVersioned;
 use serialize::{tagged_deserialize, tagged_serialize};
-use transient_crypto::curve::Fr;
-use transient_crypto::proofs::{PARAMS_VERIFIER, ProvingKeyMaterial, Zkir};
+use transient_crypto::proofs::{PARAMS_VERIFIER, Zkir};
 
+use crate::payload::build_payload;
 use crate::zkir_example::{LABEL, minimal_preimage};
 use crate::{Error, ProofRun, ProverCore, Result};
 
@@ -84,25 +83,5 @@ impl ProverCore {
     }
 }
 
-fn build_payload(
-    preimage: transient_crypto::proofs::ProofPreimage,
-    pkm: ProvingKeyMaterial,
-) -> Result<Vec<u8>> {
-    // Mirrors proof-server/src/endpoints.rs:256-260 — the /prove endpoint
-    // tagged-deserializes (ProofPreimageVersioned, Option<ProvingKeyMaterial>,
-    // Option<Fr>). Supplying Some(pkm) makes the server skip key resolution,
-    // which it would otherwise fail since "minimal" isn't a known KeyLocation.
-    let triple: (
-        ProofPreimageVersioned,
-        Option<ProvingKeyMaterial>,
-        Option<Fr>,
-    ) = (
-        ProofPreimageVersioned::V2(Arc::new(preimage)),
-        Some(pkm),
-        None,
-    );
-    let mut buf = Vec::new();
-    tagged_serialize(&triple, &mut buf)
-        .map_err(|e| Error::Anyhow(anyhow::anyhow!("serialize payload: {e}")))?;
-    Ok(buf)
-}
+// `build_payload` lives in `crate::payload`, shared with the `payload-gen`
+// binary so the benchmark sends exactly the bytes this path sends.

@@ -60,3 +60,11 @@ required-features = ["bench"]
 [[bin]]
 name = "bench-runner"
 path = "src/bin/bench_runner.rs"
+
+# payload-gen: writes a proof-server `/prove` request for the minimal zkir
+# circuit keyed at a chosen `k` (plus its verifier key and a manifest), and
+# verifies a `/prove` response outside the container. The benchmark's input
+# and its external correctness gate, in one tool that needs no server.
+[[bin]]
+name = "payload-gen"
+path = "src/bin/payload_gen.rs"

@@ -1,4 +1,78 @@
-# Proof-server burst throughput
+# Proof-server benchmarks
+
+Two tools, one input format.
+
+- `container_matrix.py` — the baseline-vs-optimized **container comparison**
+  (MLG-004): a fresh container per cell (image × storage profile × `k`),
+  start-to-ready, one cold proof and N warm proofs, external verification of
+  the first and a sampled warm response, peak memory (cgroup `memory.peak`
+  and `docker stats`), CPU, spill high-water, OOM events. One JSON line per
+  cell, failures included.
+- `throughput.py` — the **simultaneous burst** driver (below).
+
+Both send the request bodies that `payload-gen` produces.
+
+## Request payloads at a chosen `k`
+
+```sh
+cargo build -p prover-core --bin payload-gen
+target/debug/payload-gen gen --k 14 --out results/payloads   # also 19, 20 …
+```
+
+`payload-gen` keys the minimal zkir circuit at `k` (`IrSource::v2_keygen_at`
+pads it to `2^k` rows, exactly as the in-process benchmark's
+`MIDNIGHT_BENCH_K` does) and writes `k<k>-request.bin` — the exact `/prove`
+body — plus `k<k>-vk.bin` and a manifest. The body carries the proving-key
+material, because the server resolves keys only for the four published
+zswap/dust circuits; so every image under test receives byte-identical input
+and no image needs a key volume. Sizes grow with `k` (the gzipped proving key
+dominates): about 4 MB at k=14, 67 MB at k=18, 135 MB at k=19, ~270 MB at
+k=20. A ten-request burst at k=20 is therefore ~2.7 GB of request bodies —
+say so in any result that includes it.
+
+What such a payload measures is the prover **at a size** — FFTs over `2^k`
+rows, MSMs of `2^k` points, the coset working set — not a real circuit's
+content. That is the question the container comparison asks; it is not a
+substitute for a real k=20 contract, and the results must not be presented
+as one.
+
+Verify a response outside any container:
+
+```sh
+target/debug/payload-gen verify --vk results/payloads/k14-vk.bin --proof response.bin
+```
+
+## Container comparison
+
+```sh
+python3 proof-server/bench/container_matrix.py \
+  --image <candidate image> --label candidate \
+  --payload-dir results/payloads --k 14,19,20 \
+  --profiles heap,pk-mmap,threshold,forced-spill --warm 5 \
+  --out results/matrix.jsonl
+python3 proof-server/bench/container_matrix.py \
+  --image <baseline image> --label baseline \
+  --payload-dir results/payloads --k 14,19,20 --profiles heap --warm 5 \
+  --out results/matrix.jsonl
+```
+
+Profiles are the `MIDNIGHT_SPILL_*` environment the optimized image reads
+(`heap`: all off; `pk-mmap`: key mapped; `threshold`: key mapped, cosets
+spilled at k ≥ 18; `forced-spill`: cosets spilled at every `k` — a diagnostic,
+not a proposed default). An unpatched baseline ignores those variables, so run
+it with `--profiles heap` only.
+
+Cold and warm are separate numbers and stay separate: `first_proof_s` is the
+first request after `/ready` on a fresh container with the params volume
+already populated (the deploy/restart number); `warm_median_s` is over N
+sequential requests after one unmeasured warm-up. `--cold-empty` omits the
+params volume so the server fetches over the network — a third, separate
+number. `--memory 6g` runs the cell under a cgroup limit; an OOM kill is a
+row with `outcome: oom-killed`, never a missing row. Every cell records
+`log_mentions_fallback`: a spill profile whose container log says "falling
+back to heap" is not a spill result.
+
+# Burst throughput
 
 `throughput.py` sends every HTTP request at the same time. The proof server,
 not the client, controls active proving concurrency through
