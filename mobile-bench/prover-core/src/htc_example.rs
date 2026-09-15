@@ -15,8 +15,10 @@ pub(crate) const LABEL: &str = "zkir-hash-to-curve";
 /// 3-input hash-to-curve circuit. Mirrors `test_htc_proof` in
 /// zkir/tests/proofs.rs:162 — exercises the in-circuit hash + curve
 /// mapping primitive used by Pedersen commits and signature checks.
+// `minor: 2` selects the zk-stdlib-v2 prover this line keys with; see the
+// note on `MINIMAL_IR_JSON` in `zkir_example.rs`.
 const HTC_IR_JSON: &str = r#"{
-    "version": { "major": 2, "minor": 0 },
+    "version": { "major": 2, "minor": 2 },
     "num_inputs": 3,
     "do_communications_commitment": false,
     "instructions": [

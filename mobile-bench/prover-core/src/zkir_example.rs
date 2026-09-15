@@ -17,8 +17,13 @@ pub(crate) const LABEL: &str = "zkir-minimal-assert";
 /// with the smallest possible circuit so we can validate it end-to-end on
 /// every target (desktop, Android emulator, S24 Ultra) without depending on
 /// captured contract preimages.
-const MINIMAL_IR_JSON: &str = r#"{
-    "version": { "major": 2, "minor": 0 },
+// `minor` is the IR *class*: 0 and 1 route to the legacy v1 prover
+// (`transient_crypto_old`), 2 to the zk-stdlib-v2 prover this line keys
+// with. A `minor: 0` circuit could not be keyed or proven here at all
+// ("V0/V1 circuits must use transient_crypto_old"), and a proof server
+// handed a v2 key for it answered `Could not init pk`.
+pub(crate) const MINIMAL_IR_JSON: &str = r#"{
+    "version": { "major": 2, "minor": 2 },
     "num_inputs": 1,
     "do_communications_commitment": false,
     "instructions": [

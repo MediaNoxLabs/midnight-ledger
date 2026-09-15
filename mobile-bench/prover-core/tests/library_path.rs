@@ -59,5 +59,7 @@ async fn prove_ec_example_succeeds_and_verifies() {
         .await
         .expect("prove_ec_example");
     assert_proof_run(&run, "zkir-ec-mul-add");
-    assert_eq!(run.k, 11);
+    // 11 under the v1 zk-stdlib; the v2 architecture lays the same circuit
+    // out in fewer rows. The proof above still verifies, which is the claim.
+    assert_eq!(run.k, 10);
 }
