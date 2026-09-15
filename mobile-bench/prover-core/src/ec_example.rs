@@ -17,8 +17,10 @@ pub(crate) const LABEL: &str = "zkir-ec-mul-add";
 /// the IR is `[a_x, a_y, scalar, scalar_g, mul_x, mul_y, gen_x, gen_y]` —
 /// indices 4..8 are the outputs of the first two ops, which `ec_add` then
 /// consumes.
+// `minor: 2` selects the zk-stdlib-v2 prover this line keys with; see the
+// note on `MINIMAL_IR_JSON` in `zkir_example.rs`.
 const EC_IR_JSON: &str = r#"{
-    "version": { "major": 2, "minor": 0 },
+    "version": { "major": 2, "minor": 2 },
     "num_inputs": 4,
     "do_communications_commitment": false,
     "instructions": [
