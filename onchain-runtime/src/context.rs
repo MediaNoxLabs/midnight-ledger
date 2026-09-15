@@ -348,15 +348,22 @@ pub struct BlockContext {
 }
 tag_enforcement_test!(BlockContext);
 
-/// Serialize a tuple-keyed map as a JSON sequence of `[key, value]` pairs
-/// rather than an object. Neither `serde_json` nor `serde_wasm_bindgen` can
-/// encode a non-string map key as a JSON object key, so a non-empty
+/// Serialize a tuple-keyed map in the shape each backend can actually carry.
+///
+/// A JSON object cannot hold a tuple key, so under `serde_json` a non-empty
 /// `claimed_unshielded_spends` (keyed by `(SerdeTokenType, SerdePublicAddress)`)
-/// would otherwise fail to serialize at all (`KeyMustBeAString`). The
-/// `deserialize` half accepts BOTH the new seq form and a legacy object (only
-/// ever empty for a tuple-keyed map, but tolerated generally), so the wasm/web
-/// backend (`serde_wasm_bindgen::from_value`) and any previously-serialized
-/// empty `{}` keep working.
+/// used to fail to serialize at all (`KeyMustBeAString`). On native targets the
+/// map is therefore written as a sequence of `[key, value]` pairs.
+///
+/// The wasm backend has no such limit: `serde_wasm_bindgen` serializes a map
+/// as a JS `Map`, whose keys may be any value — and the published TypeScript
+/// declares exactly that `Map`. So on `wasm` the field stays a map, which is
+/// upstream's wire shape; encoding it as a seq there broke five of upstream's
+/// integration tests and the declared type (MediaNoxLabs/midnight-ledger#11).
+///
+/// The `deserialize` half accepts BOTH forms on every target, so a native
+/// consumer can still read a wasm-produced map and vice versa, and any
+/// previously-serialized empty `{}` keeps working.
 mod map_seq_compat {
     use std::collections::HashMap;
     use std::fmt;
@@ -364,9 +371,14 @@ mod map_seq_compat {
     use std::marker::PhantomData;
 
     use serde::de::{Deserializer, MapAccess, SeqAccess, Visitor};
-    use serde::ser::{SerializeSeq, Serializer};
+    #[cfg(not(target_family = "wasm"))]
+    use serde::ser::SerializeSeq;
+    use serde::ser::Serializer;
     use serde::{Deserialize, Serialize};
 
+    /// Native: a seq of `[key, value]` pairs, because the JSON backends here
+    /// cannot represent a tuple key any other way.
+    #[cfg(not(target_family = "wasm"))]
     pub(super) fn serialize<K, V, S>(map: &HashMap<K, V>, ser: S) -> Result<S::Ok, S::Error>
     where
         K: Serialize,
@@ -378,6 +390,18 @@ mod map_seq_compat {
             seq.serialize_element(&(k, v))?;
         }
         seq.end()
+    }
+
+    /// wasm: a real map, as `serde_wasm_bindgen` turns it into a JS `Map` and
+    /// the `.d.ts` promises one.
+    #[cfg(target_family = "wasm")]
+    pub(super) fn serialize<K, V, S>(map: &HashMap<K, V>, ser: S) -> Result<S::Ok, S::Error>
+    where
+        K: Serialize,
+        V: Serialize,
+        S: Serializer,
+    {
+        ser.collect_map(map)
     }
 
     pub(super) fn deserialize<'de, K, V, D>(de: D) -> Result<HashMap<K, V>, D::Error>
@@ -426,8 +450,9 @@ struct SerdeEffects {
     unshielded_mints: HashMap<String, u64>,
     unshielded_inputs: HashMap<SerdeTokenType, u128>,
     unshielded_outputs: HashMap<SerdeTokenType, u128>,
-    // Tuple-keyed: serialized as a seq of `[[ttHex, addrHex], value]` (see
-    // `map_seq_compat`) so a non-empty map doesn't hit `KeyMustBeAString`.
+    // Tuple-keyed. Native JSON cannot hold a tuple key, so `map_seq_compat`
+    // writes a seq of `[[ttHex, addrHex], value]` there; on wasm it stays the
+    // JS `Map` the TypeScript declares. Reads accept both everywhere.
     #[serde(with = "map_seq_compat")]
     claimed_unshielded_spends: HashMap<(SerdeTokenType, SerdePublicAddress), u128>,
 }
