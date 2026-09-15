@@ -72,6 +72,31 @@ row with `outcome: oom-killed`, never a missing row. Every cell records
 `log_mentions_fallback`: a spill profile whose container log says "falling
 back to heap" is not a spill result.
 
+Spill lives on a **named Docker volume** created per cell (`spill_backing:
+docker-volume` in the row), never on a bind mount: on Docker Desktop a
+bind-mounted spill directory makes every PK-spill key load fail with
+`Could not init pk: No such file or directory` and the server answers 400 to
+a valid request, while tmpfs and a named volume both work. tmpfs is not used
+because it is memory-backed, which defeats what spill is for. The prover
+creates and unlinks its temp files, so `du` on the volume sees almost
+nothing; spill I/O is reported instead as the container's cumulative block
+I/O from `docker stats` (`block_io_write_bytes`, `block_io_read_bytes`).
+The proof-server images are distroless (no `sh`), so the cgroup
+`memory.peak`/`memory.events` reads through `docker exec` come back empty;
+peak memory is the `docker stats` sampler's maximum and OOM detection is
+`docker inspect`'s `OOMKilled`.
+
+Render the rows as Markdown, every cell kept and cells that ran under a
+loaded host flagged:
+
+```sh
+python3 proof-server/bench/report.py --cells results/matrix.jsonl \
+  --bursts results/burst-summaries.jsonl --hostload results/hostload.log
+```
+
+`hostload.log` is `<iso-utc> <1m> <5m> <15m> | <context>` lines, sampled
+alongside the run (see `results/mlg004-2026-09-15/` for the shape).
+
 # Burst throughput
 
 `throughput.py` sends every HTTP request at the same time. The proof server,
