@@ -559,6 +559,30 @@ impl IrSource {
         Ok((ProverKey::from_raw(pk), VerifierKey::from(vk)))
     }
 
+    /// v2 key generation at an explicit `k`, at or above the circuit's minimum.
+    ///
+    /// The circuit is padded to `2^k` rows — the same thing the in-process
+    /// benchmark does through `MIDNIGHT_BENCH_K` — and the proof is still
+    /// accepted by the verifier key returned here. It exists so a small, known
+    /// circuit can stand in for a large one when what is being measured is the
+    /// prover's behaviour *at a size* (memory, time, I/O), not the circuit.
+    /// Keys made this way are for benchmarks; a deployment keys at the
+    /// circuit's own `k`.
+    pub async fn v2_keygen_at(
+        &self,
+        k: u8,
+        params: &impl ParamsProverProvider,
+    ) -> Result<(ProverKey<Self>, VerifierKey), anyhow::Error> {
+        use midnight_zk_stdlib::{setup_pk, setup_vk};
+        let min_k = midnight_zk_stdlib::optimal_k(self) as u8;
+        if k < min_k {
+            anyhow::bail!("k={k} is below this circuit's minimum k={min_k}");
+        }
+        let vk = setup_vk(params.get_params(k).await?.as_ref(), self);
+        let pk = setup_pk(self, &vk);
+        Ok((ProverKey::from_raw(pk), VerifierKey::from(vk)))
+    }
+
     /// Retrieves a model representation of this circuit.
     pub fn model(&self) -> Model {
         Model {
