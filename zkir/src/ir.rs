@@ -137,9 +137,10 @@ impl Zkir for IrSource {
                 )
             }
             IrMinorVersion::V2 => {
-                let inner_pk = pk
-                    .init()
-                    .map_err(|e| anyhow::anyhow!("Could not init pk: {e:?}"))?;
+                // Keep the cause in the chain rather than flattening it into
+                // text: the proof server decides between "bad request" and
+                // "server misconfigured" from the underlying `io::Error`.
+                let inner_pk = pk.init().map_err(|e| e.context("Could not init pk"))?;
                 use midnight_zk_stdlib::prove;
                 let params_k = params.get_params(inner_pk.k()).await?;
                 let preproc = self.preprocess(preimage)?;
