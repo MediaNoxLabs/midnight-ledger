@@ -14,6 +14,8 @@ endpoints are described in `src/endpoints.rs`.
 | `MIDNIGHT_PROOF_SERVER_JOB_CAPACITY` | bounded queue depth (admission is atomic); `0` means unbounded | `0` |
 | `MIDNIGHT_PROOF_SERVER_JOB_TIMEOUT` | seconds from *submission* to completion | `600` |
 | `MIDNIGHT_PROOF_SERVER_NO_FETCH_PARAMS` | `true` to skip fetching the published keys at start | `false` |
+| `MIDNIGHT_PROOF_SERVER_MAX_REQUEST_BYTES` | largest request body the server will buffer | `536870912` (512 MiB) |
+| `MIDNIGHT_PROOF_SERVER_READ_TIMEOUT` | seconds to receive one request body | `120` |
 | `MIDNIGHT_PP` | directory holding `bls_midnight_2p<k>` params | `~/.cache/midnight/zk-params` |
 
 The prover's memory policy comes from the `midnight-proofs` crate and is read
@@ -56,3 +58,30 @@ floor `18`.
   the client, needs fixing.
 - **429** — the bounded queue is full; **412** — the job id is unknown;
   **400** also for a job that is no longer pending.
+- **413** — the request body is larger than
+  `MIDNIGHT_PROOF_SERVER_MAX_REQUEST_BYTES`. A declared `Content-Length` over
+  the bound is refused before a byte is read; a body that arrives chunked, or
+  lies about its length, is cut off at the same bound while streaming.
+
+- **408** — the body did not arrive within `MIDNIGHT_PROOF_SERVER_READ_TIMEOUT`.
+
+### What bounds what
+
+`JOB_CAPACITY` bounds proving **and now ingress**: a `/prove`, `/prove-tx` or
+`/check` request takes its queue slot *before* its body is read, so the memory
+in flight is bounded by the queue depth rather than by the number of open
+connections. The slot is returned automatically if the request never becomes
+work — too large, too slow, or not deserialisable.
+
+On this line `JOB_CAPACITY` still defaults to `0`, which means unbounded, so
+the ingress bound is only as real as the capacity you configure. Set it.
+
+`MAX_REQUEST_BYTES` bounds one request's memory; `READ_TIMEOUT` bounds the time
+it may spend arriving. Both are enforced in the handler, because actix's own
+`client_request_timeout` is a deadline for reading the request *head* and
+`client_disconnect_timeout` one for connection shutdown — neither covers the
+body loop the handlers run, so both are left at their defaults.
+
+Why this matters: a `/prove` body carries the whole proving-key material
+inline, on the order of 269 MB at k=20, and the server used to buffer it,
+deserialise it and deep-copy the key material before admission ran at all.
