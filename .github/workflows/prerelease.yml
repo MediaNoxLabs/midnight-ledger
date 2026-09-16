@@ -19,7 +19,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest-8-core-x64
+    runs-on: ${{ vars.LARGE_RUNNER || 'ubuntu-latest' }}
     # Real publishes require approval from a reviewer on the protected `release`
     # environment (configure its required reviewers = ledger maintainers in repo
     # Settings -> Environments). Dry runs need no approval. The build job is the
@@ -288,7 +288,7 @@ jobs:
 
   unit-tests:
     needs: build
-    runs-on: ubuntu-latest-8-core-x64
+    runs-on: ${{ vars.LARGE_RUNNER || 'ubuntu-latest' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
@@ -383,7 +383,7 @@ jobs:
     # go out earlier, in `build`). Final releases only: pre-releases (version
     # contains a '-') skip the job - they ship via cargo [patch] + git tag.
     if: ${{ !contains(needs.build.outputs.version, '-') }}
-    runs-on: ubuntu-latest-8-core-x64
+    runs-on: ${{ vars.LARGE_RUNNER || 'ubuntu-latest' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1

@@ -17,7 +17,7 @@ env:
 
 jobs:
   benchmark:
-    runs-on: ubuntu-latest-8-core-x64
+    runs-on: ${{ vars.LARGE_RUNNER || 'ubuntu-latest' }}
     steps:
       - name: Install required libs
         run: |
