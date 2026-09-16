@@ -33,6 +33,10 @@ midnight-circuits = { version = "^6.2.0" }
 midnight-zk-stdlib = { version = "^1.2.0" }
 anyhow = { version = "^1.0.102" }
 lru = "0.18.0"
+# `memmap2` is declared per-target below, alongside the midnight-proofs
+# features it pairs with — see the `cfg(not(target_family = "wasm"))`
+# table. Declaring it here would put it in every wasm bundle for code
+# that target cannot reach.
 
 # rand 0.9.0 is not yet supported by some of our dependencies, we will
 # stick with 0.8.0 for now.
@@ -58,6 +62,29 @@ proptest-derive = { version = "0.8", optional = true }
 blake2b_simd = "1.0.3"
 
 futures = { version = "^0.3.31" }
+
+# Host-only prover optimisations in the patched midnight-proofs.
+#
+# `disk-spill` implies `mmap`, and both are a `compile_error!` on wasm —
+# deliberately, so a browser build fails loudly at compile time instead
+# of panicking on first use of a mapped path. Requesting them per-target
+# is what lets one workspace build both: native gets `read_mmap_arc`,
+# `write_mmap_companion` and the coset spill; wasm gets a
+# midnight-proofs with neither the code nor the `memmap2`/`tempfile`
+# dependencies in its bundle.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+midnight-proofs = { version = "^0.7.0", features = ["disk-spill"] }
+# `read_mmap_path` opens the companion SRS file via `memmap2` and hands
+# the `Arc<Mmap>` to the patched midnight-proofs' `read_mmap_arc`. The
+# companion lives in the app cache dir and the mapping is read-only.
+# Lives in this table because it is exactly as host-only as the feature
+# above: without `mmap` there is no `read_mmap_arc` to hand it to.
+memmap2 = "0.9"
+# A companion is published, never written in place: bytes go to a private
+# same-directory temp file (`tempfile::NamedTempFile`), are validated and
+# synced, then land under the final name by `persist_noclobber` — one atomic
+# rename that refuses to replace an inode another mapping may hold (F-034).
+tempfile = "3.20"
 
 [dev-dependencies]
 midnight-transient-crypto = { path = ".", features = ["proptest"] }
