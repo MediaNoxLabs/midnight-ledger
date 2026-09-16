@@ -64,6 +64,34 @@ mod common {
         start_server_impl(num_workers, job_limit, false)
     }
 
+    /// A server whose ingress bound is `max_request_bytes`, so an oversize
+    /// body can be exercised without a 512 MiB request.
+    pub fn start_server_with_ingress(
+        num_workers: usize,
+        job_limit: usize,
+        max_request_bytes: usize,
+    ) -> TestServer {
+        init_logger();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            rt::System::new().block_on(async move {
+                let pool = WorkerPool::new(num_workers, job_limit, 600.0);
+                let (srv, bound_port) = midnight_proof_server::server_with_ingress(
+                    0,
+                    false,
+                    pool,
+                    midnight_proof_server::endpoints::IngressConfig { max_request_bytes },
+                )
+                .expect("Failed to start server");
+                tx.send((srv.handle(), bound_port))
+                    .expect("Failed to send server handle");
+                srv.await.expect("Server error");
+            });
+        });
+        let (handle, port) = rx.recv().expect("Failed to receive server handle");
+        TestServer { handle, port }
+    }
+
     pub fn start_server_with_fetch_params(
         num_workers: usize,
         job_limit: usize,
@@ -944,6 +972,76 @@ mod fetch_params_endpoint {
 
         let text = response.text().await.expect("Failed to get response text");
         assert_eq!(text, "success");
+
+        stop_server(server).await;
+    }
+
+    // ---- ingress admission (MLG-007) ------------------------------------
+    //
+    // `job_capacity` bounded proving, not ingress: the body was read,
+    // deserialised and its proving-key material deep-copied before admission
+    // was checked, so N in-flight requests each held a k=20 body — hundreds of
+    // MB — while the queue that was meant to bound the server sat full.
+
+    #[tokio::test]
+    async fn refuses_a_body_larger_than_the_ingress_bound() {
+        let server = start_server_with_ingress(DEFAULT_NUM_WORKERS, DEFAULT_JOB_LIMIT, 1024);
+
+        let response = HTTP_CLIENT
+            .post(format!("{}/prove", server.base_url()))
+            .body(vec![0u8; 4096])
+            .send()
+            .await
+            .expect("Request failed");
+
+        assert_eq!(
+            response.status(),
+            413,
+            "an oversize body must be refused, not buffered"
+        );
+        let text = response.text().await.expect("response text");
+        assert!(
+            text.contains("limit"),
+            "the refusal should say what the limit was: {text}"
+        );
+
+        stop_server(server).await;
+    }
+
+    #[tokio::test]
+    async fn refuses_an_oversize_body_declared_in_content_length() {
+        // The declared length is checked before a byte is read, so the refusal
+        // does not depend on the client actually sending the bytes.
+        let server = start_server_with_ingress(DEFAULT_NUM_WORKERS, DEFAULT_JOB_LIMIT, 1024);
+
+        let response = HTTP_CLIENT
+            .post(format!("{}/prove", server.base_url()))
+            .header("Content-Length", "1048576")
+            .body(vec![0u8; 1024 * 1024])
+            .send()
+            .await
+            .expect("Request failed");
+
+        assert_eq!(response.status(), 413);
+
+        stop_server(server).await;
+    }
+
+    #[tokio::test]
+    async fn a_body_within_the_bound_is_still_read() {
+        // The bound must not swallow ordinary requests: this one is refused
+        // for its content (400, not a valid payload), which proves the body
+        // reached the handler.
+        let server = start_server_with_ingress(DEFAULT_NUM_WORKERS, DEFAULT_JOB_LIMIT, 4096);
+
+        let response = HTTP_CLIENT
+            .post(format!("{}/prove", server.base_url()))
+            .body(vec![0u8; 1024])
+            .send()
+            .await
+            .expect("Request failed");
+
+        assert_eq!(response.status(), 400);
 
         stop_server(server).await;
     }

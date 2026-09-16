@@ -314,6 +314,17 @@ impl WorkerPool {
     }
 
     /// Receives the result of a completed work item
+    /// Whether the bounded queue is already at capacity.
+    ///
+    /// Advisory: the authoritative admission is the atomic check inside
+    /// [`Requests::new_req`], which this cannot replace and does not try to.
+    /// It exists so an ingress handler can refuse a request *before* reading
+    /// and deserialising a body the server already knows it cannot queue —
+    /// hundreds of MB at k=20, held while the queue is full.
+    pub async fn is_full(&self) -> bool {
+        self.requests.is_full().await
+    }
+
     pub async fn poll(&self, id: Uuid) -> Option<JobStatus> {
         let job = self.requests.get(id).await;
         if let Some(ref job) = job {

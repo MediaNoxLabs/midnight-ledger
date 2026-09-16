@@ -14,6 +14,7 @@ endpoints are described in `src/endpoints.rs`.
 | `MIDNIGHT_PROOF_SERVER_JOB_CAPACITY` | bounded queue depth (admission is atomic) | `10` |
 | `MIDNIGHT_PROOF_SERVER_JOB_TIMEOUT` | seconds from *submission* to completion | `600` |
 | `MIDNIGHT_PROOF_SERVER_NO_FETCH_PARAMS` | `true` to skip fetching the published keys at start | `false` |
+| `MIDNIGHT_PROOF_SERVER_MAX_REQUEST_BYTES` | largest request body the server will buffer | `536870912` (512 MiB) |
 | `MIDNIGHT_PP` | directory holding `bls_midnight_2p<k>` params | `~/.cache/midnight/zk-params` |
 
 The prover's memory policy comes from the `midnight-proofs` crate and is read
@@ -56,6 +57,20 @@ proof. A profile that is a sensible production default: spill on, floor `18`.
   the client, needs fixing.
 - **429** — the bounded queue is full; **412** — the job id is unknown;
   **400** also for a job that is no longer pending.
+- **413** — the request body is larger than
+  `MIDNIGHT_PROOF_SERVER_MAX_REQUEST_BYTES`. A declared `Content-Length` over
+  the bound is refused before a byte is read; a body that arrives chunked, or
+  lies about its length, is cut off at the same bound while streaming.
+
+### What bounds what
+
+`JOB_CAPACITY` bounds proving. `MAX_REQUEST_BYTES` bounds a single request's
+memory, and the 429 is now answered **before** the body is read rather than
+after it has been buffered, deserialised and its proving-key material copied —
+a `/prove` body carries the whole key material inline, on the order of 269 MB
+at k=20, so a queue-full server used to hold one of those per in-flight
+request. The time bound is the server's `client_request_timeout` (60 s to send
+a complete request) and `client_disconnect_timeout`.
 
 ## Benchmarks
 

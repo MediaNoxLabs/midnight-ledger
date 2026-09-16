@@ -13,10 +13,10 @@
 
 #![deny(unreachable_pub)]
 #![deny(warnings)]
-use actix_web::error::ErrorBadRequest;
+use actix_web::error::{ErrorBadRequest, ErrorPayloadTooLarge};
 use actix_web::http::StatusCode;
 use actix_web::web::{self, Bytes, BytesMut, Data, Payload};
-use actix_web::{Error, HttpResponse, HttpResponseBuilder, Responder, get, post};
+use actix_web::{Error, HttpRequest, HttpResponse, HttpResponseBuilder, Responder, get, post};
 use base_crypto::data_provider::{self, MidnightDataProvider};
 use base_crypto::data_provider::{FetchMode, OutputMode};
 use futures_util::stream::StreamExt;
@@ -43,7 +43,7 @@ use zkir as zkir_v2;
 use zswap::prove::ZswapResolver;
 
 use crate::versioned_ir;
-use crate::worker_pool::{JobStatus, WorkError, WorkerPool};
+use crate::worker_pool::{JobStatus, WorkError, WorkerPool, WorkerPoolError};
 
 lazy_static! {
     pub static ref PUBLIC_PARAMS: ZswapResolver = ZswapResolver(
@@ -56,13 +56,136 @@ lazy_static! {
     );
 }
 
-async fn payload_to_bytes(mut payload: Payload) -> Result<Bytes, Error> {
+/// How much of a request the server is willing to take in before it knows it
+/// can serve it.
+///
+/// A value rather than an environment read at the point of use: the limit has
+/// to be settable in a test, and `std::env::set_var` is `unsafe` under Rust
+/// 2024 and races every other test in the binary. [`Self::from_env`] is the
+/// one place the environment is consulted, at the server's construction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IngressConfig {
+    /// Largest request body the server will buffer, in bytes.
+    ///
+    /// A `/prove` body carries the whole proving-key material inline: at k=20
+    /// that is on the order of 269 MB, so the default has to clear it with
+    /// room to spare while still being a bound.
+    pub max_request_bytes: usize,
+}
+
+impl IngressConfig {
+    /// The default bound: 512 MiB.
+    pub const DEFAULT_MAX_REQUEST_BYTES: usize = 512 * 1024 * 1024;
+
+    /// Read the limit from `MIDNIGHT_PROOF_SERVER_MAX_REQUEST_BYTES`.
+    ///
+    /// An unset, empty or unparseable value falls back to the default and
+    /// warns: a malformed tuning knob should not stop a server that would
+    /// otherwise work.
+    pub fn from_env() -> Self {
+        let max_request_bytes = match std::env::var("MIDNIGHT_PROOF_SERVER_MAX_REQUEST_BYTES")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .map(|v| v.parse::<usize>())
+        {
+            Some(Ok(bytes)) if bytes > 0 => bytes,
+            Some(_) => {
+                warn!(
+                    default = Self::DEFAULT_MAX_REQUEST_BYTES,
+                    "MIDNIGHT_PROOF_SERVER_MAX_REQUEST_BYTES is not a positive integer; \
+                     using the default"
+                );
+                Self::DEFAULT_MAX_REQUEST_BYTES
+            }
+            None => Self::DEFAULT_MAX_REQUEST_BYTES,
+        };
+        Self { max_request_bytes }
+    }
+}
+
+impl Default for IngressConfig {
+    fn default() -> Self {
+        Self {
+            max_request_bytes: Self::DEFAULT_MAX_REQUEST_BYTES,
+        }
+    }
+}
+
+/// Refuse the request before its body is read, if the queue cannot take it.
+///
+/// `job_capacity` bounded proving but not ingress: the body was buffered, then
+/// deserialised, then the proving-key material deep-copied, and only then was
+/// admission checked. Any number of in-flight requests could therefore hold a
+/// k=20 body each — hundreds of MB apiece — while the queue that was supposed
+/// to bound the server sat full. Checking first costs one lock and answers the
+/// same 429 the queue would have answered later.
+///
+/// This is advisory by construction: the authoritative admission is still the
+/// atomic one inside `WorkerPool::submit`, and a request that passes here can
+/// still be refused there. The point is not to replace that check but to stop
+/// reading hundreds of MB the server already knows it cannot use.
+async fn admit_or_reject(pool: &WorkerPool) -> Result<(), Error> {
+    if pool.is_full().await {
+        return Err(WorkerPoolError::JobQueueFull.into());
+    }
+    Ok(())
+}
+
+/// Read a request body, refusing one larger than [`max_request_bytes`].
+///
+/// The declared `Content-Length` is checked first so an oversize request is
+/// refused before a byte of it is read; a body that lies about its length, or
+/// arrives chunked with none declared, is cut off at the same bound while
+/// streaming. Actix's `PayloadConfig` does not cover this path: it bounds the
+/// `Bytes` and `String` extractors, not a raw `Payload` the handler drains
+/// itself.
+async fn payload_to_bytes(req: &HttpRequest, mut payload: Payload) -> Result<Bytes, Error> {
+    // A server built by `crate::server` always carries this; the default is
+    // the same bound, so a handler mounted without it is bounded too.
+    let max = req
+        .app_data::<Data<IngressConfig>>()
+        .map(|c| c.max_request_bytes)
+        .unwrap_or(IngressConfig::DEFAULT_MAX_REQUEST_BYTES);
+    if let Some(declared) = req
+        .headers()
+        .get(actix_web::http::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<usize>().ok())
+        && declared > max
+    {
+        return Err(ErrorPayloadTooLarge(format!(
+            "request declares {declared} bytes; the limit is {max}"
+        )));
+    }
+
     let mut body = BytesMut::new();
     while let Some(chunk) = payload.next().await {
         let chunk = chunk?;
+        if body.len() + chunk.len() > max {
+            return Err(ErrorPayloadTooLarge(format!(
+                "request body exceeds the limit of {max} bytes"
+            )));
+        }
         body.extend_from_slice(&chunk);
     }
     Ok(body.freeze())
+}
+
+/// Hex-dump a request body at debug level, but only a small one.
+///
+/// The dump is twice the body's size in a `String`, so doing it for a k=20
+/// `/prove` body meant half a gigabyte of hex on top of the body itself —
+/// under `--verbose`, on a server whose whole problem is memory.
+fn debug_request_body(what: &str, request: &Bytes) {
+    const MAX_DUMP_BYTES: usize = 64 * 1024;
+    if request.len() <= MAX_DUMP_BYTES {
+        debug!("{what}: {}", (&request[..]).encode_hex::<String>());
+    } else {
+        debug!(
+            "{what}: {} bytes, not dumped (over {MAX_DUMP_BYTES})",
+            request.len()
+        );
+    }
 }
 
 type TransactionProvePayload<S> = (
@@ -155,13 +278,10 @@ pub(crate) async fn proof_versions() -> impl Responder {
 }
 
 #[post("/k")]
-pub(crate) async fn get_k(payload: Payload) -> Result<HttpResponse, Error> {
+pub(crate) async fn get_k(req: HttpRequest, payload: Payload) -> Result<HttpResponse, Error> {
     info!("Starting to process request for /k...");
-    let request = payload_to_bytes(payload).await?;
-    debug!(
-        "Received request: {}",
-        (&request[..]).encode_hex::<String>()
-    );
+    let request = payload_to_bytes(&req, payload).await?;
+    debug_request_body("Received request", &request);
 
     let k = versioned_ir::k(&request).map_err(ErrorBadRequest)?;
 
@@ -170,15 +290,14 @@ pub(crate) async fn get_k(payload: Payload) -> Result<HttpResponse, Error> {
 
 #[post("/check")]
 pub(crate) async fn check(
+    req: HttpRequest,
     pool: Data<Arc<WorkerPool>>,
     payload: Payload,
 ) -> Result<HttpResponse, Error> {
     info!("Starting to process request for /check...");
-    let request = payload_to_bytes(payload).await?;
-    debug!(
-        "Received request: {}",
-        (&request[..]).encode_hex::<String>()
-    );
+    admit_or_reject(&pool).await?;
+    let request = payload_to_bytes(&req, payload).await?;
+    debug_request_body("Received request", &request);
     let (ppi, ir): (ProofPreimageVersioned, Option<WrappedIr>) =
         tagged_deserialize(&request[..]).map_err(ErrorBadRequest)?;
     let (_id, updates) = pool
@@ -243,21 +362,26 @@ pub(crate) async fn check(
 
 #[post("/prove")]
 pub(crate) async fn prove(
+    req: HttpRequest,
     pool: Data<Arc<WorkerPool>>,
     payload: Payload,
 ) -> Result<HttpResponse, Error> {
     info!("Starting to process request for /prove...");
-    let request = payload_to_bytes(payload).await?;
-    debug!(
-        "Received request: {}",
-        (&request[..]).encode_hex::<String>()
-    );
+    admit_or_reject(&pool).await?;
+    let request = payload_to_bytes(&req, payload).await?;
+    debug_request_body("Received request", &request);
     let (ppi, data, binding_input): (
         ProofPreimageVersioned,
         Option<ProvingKeyMaterial>,
         Option<Fr>,
     ) = tagged_deserialize(&request[..]).map_err(ErrorBadRequest)?;
 
+    // Share the proving-key material rather than deep-copying it. It is three
+    // `Vec<u8>` that reach 269 MB at k=20, and the copy existed only so the
+    // resolver closure could own one; behind an `Arc` the resolver pays for a
+    // copy if and when it is actually consulted, and the common path pays for
+    // none.
+    let data = data.map(Arc::new);
     let data_resolver = data.clone();
     let (_id, updates) = pool
         .submit_and_subscribe(move || {
@@ -277,7 +401,7 @@ pub(crate) async fn prove(
                         .expect("data provider initialization failed"),
                     ),
                     Box::new(move |_: KeyLocation| {
-                        Box::pin(std::future::ready(Ok(data_resolver.clone())))
+                        Box::pin(std::future::ready(Ok(data_resolver.as_deref().cloned())))
                     }),
                 );
                 let proof = match ppi {
@@ -287,18 +411,20 @@ pub(crate) async fn prove(
                             inner.binding_input = binding_input;
                             ppi = Arc::new(inner);
                         }
-                        let proving_data = match data {
+                        let proving_data: Arc<ProvingKeyMaterial> = match data {
                             Some(pkm) => pkm,
-                            None => resolver
-                                .resolve_key(ppi.key_location.clone())
-                                .await
-                                .map_err(|e| WorkError::BadInput(e.to_string()))?
-                                .ok_or_else(|| {
-                                    WorkError::BadInput(format!(
-                                        "couldn't find key {}",
-                                        ppi.key_location.0
-                                    ))
-                                })?,
+                            None => Arc::new(
+                                resolver
+                                    .resolve_key(ppi.key_location.clone())
+                                    .await
+                                    .map_err(|e| WorkError::BadInput(e.to_string()))?
+                                    .ok_or_else(|| {
+                                        WorkError::BadInput(format!(
+                                            "couldn't find key {}",
+                                            ppi.key_location.0
+                                        ))
+                                    })?,
+                            ),
                         };
 
                         let proof = versioned_ir::prove(ppi, &proving_data.ir_source, &resolver)
@@ -335,15 +461,14 @@ pub(crate) async fn prove(
 
 #[post("/prove-tx")]
 pub(crate) async fn prove_transaction(
+    req: HttpRequest,
     pool: Data<Arc<WorkerPool>>,
     payload: Payload,
 ) -> Result<HttpResponse, Error> {
     info!("Starting to process request for /prove-tx...");
-    let request = payload_to_bytes(payload).await?;
-    debug!(
-        "Received request: {}",
-        (&request[..]).encode_hex::<String>()
-    );
+    admit_or_reject(&pool).await?;
+    let request = payload_to_bytes(&req, payload).await?;
+    debug_request_body("Received request", &request);
     let (tx, keys): TransactionProvePayload<Signature> =
         tagged_deserialize(&request[..]).map_err(ErrorBadRequest)?;
     let (_id, updates) = pool
