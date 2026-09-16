@@ -13,7 +13,7 @@
 
 #![deny(unreachable_pub)]
 #![deny(warnings)]
-use actix_web::error::{ErrorBadRequest, ErrorPayloadTooLarge};
+use actix_web::error::{ErrorBadRequest, ErrorPayloadTooLarge, ErrorRequestTimeout};
 use actix_web::http::StatusCode;
 use actix_web::web::{self, Bytes, BytesMut, Data, Payload};
 use actix_web::{Error, HttpRequest, HttpResponse, HttpResponseBuilder, Responder, get, post};
@@ -33,6 +33,7 @@ use rand::rngs::OsRng;
 use serialize::{tagged_deserialize, tagged_serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use storage::db::InMemoryDB;
 use tracing::{debug, info, warn};
 use transient_crypto::commitment::PedersenRandomness;
@@ -43,7 +44,7 @@ use zkir as zkir_v2;
 use zswap::prove::ZswapResolver;
 
 use crate::versioned_ir;
-use crate::worker_pool::{JobStatus, WorkError, WorkerPool, WorkerPoolError};
+use crate::worker_pool::{JobStatus, Reservation, WorkError, WorkerPool};
 
 lazy_static! {
     pub static ref PUBLIC_PARAMS: ZswapResolver = ZswapResolver(
@@ -71,11 +72,24 @@ pub struct IngressConfig {
     /// that is on the order of 269 MB, so the default has to clear it with
     /// room to spare while still being a bound.
     pub max_request_bytes: usize,
+
+    /// How long the server will spend receiving one request body.
+    ///
+    /// The byte bound alone does not stop a client that sends its body one
+    /// slow byte at a time: it holds the buffer, and the reserved queue slot,
+    /// for as long as it likes. Actix's own `client_request_timeout` does not
+    /// cover this — it is a deadline for reading the request *head* — so the
+    /// body drain carries its own.
+    pub read_timeout: Duration,
 }
 
 impl IngressConfig {
     /// The default bound: 512 MiB.
     pub const DEFAULT_MAX_REQUEST_BYTES: usize = 512 * 1024 * 1024;
+
+    /// The default body deadline: 120 s. Generous enough for a few hundred MB
+    /// over a slow link, short enough that a stalled sender gives the slot up.
+    pub const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(120);
 
     /// Read the limit from `MIDNIGHT_PROOF_SERVER_MAX_REQUEST_BYTES`.
     ///
@@ -99,7 +113,25 @@ impl IngressConfig {
             }
             None => Self::DEFAULT_MAX_REQUEST_BYTES,
         };
-        Self { max_request_bytes }
+        let read_timeout = match std::env::var("MIDNIGHT_PROOF_SERVER_READ_TIMEOUT")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .map(|v| v.parse::<u64>())
+        {
+            Some(Ok(secs)) if secs > 0 => Duration::from_secs(secs),
+            Some(_) => {
+                warn!(
+                    "MIDNIGHT_PROOF_SERVER_READ_TIMEOUT is not a positive number of seconds; \
+                     using the default"
+                );
+                Self::DEFAULT_READ_TIMEOUT
+            }
+            None => Self::DEFAULT_READ_TIMEOUT,
+        };
+        Self {
+            max_request_bytes,
+            read_timeout,
+        }
     }
 }
 
@@ -107,28 +139,28 @@ impl Default for IngressConfig {
     fn default() -> Self {
         Self {
             max_request_bytes: Self::DEFAULT_MAX_REQUEST_BYTES,
+            read_timeout: Self::DEFAULT_READ_TIMEOUT,
         }
     }
 }
 
-/// Refuse the request before its body is read, if the queue cannot take it.
+/// Take a queue slot before reading the body, or answer 429 now.
 ///
 /// `job_capacity` bounded proving but not ingress: the body was buffered, then
 /// deserialised, then the proving-key material deep-copied, and only then was
 /// admission checked. Any number of in-flight requests could therefore hold a
 /// k=20 body each — hundreds of MB apiece — while the queue that was supposed
-/// to bound the server sat full. Checking first costs one lock and answers the
-/// same 429 the queue would have answered later.
+/// to bound the server sat full.
 ///
-/// This is advisory by construction: the authoritative admission is still the
-/// atomic one inside `WorkerPool::submit`, and a request that passes here can
-/// still be refused there. The point is not to replace that check but to stop
-/// reading hundreds of MB the server already knows it cannot use.
-async fn admit_or_reject(pool: &WorkerPool) -> Result<(), Error> {
-    if pool.is_full().await {
-        return Err(WorkerPoolError::JobQueueFull.into());
-    }
-    Ok(())
+/// A *check* would not have fixed that: several requests can each observe
+/// spare capacity, none of them having taken it, and then buffer a body apiece.
+/// The reservation is the fix — the slot is Pending from this moment, so the
+/// memory in flight is bounded by `job_capacity` and not by the number of
+/// connections. The guard hands the slot back if the request never becomes
+/// work, whether because the body was too large, arrived too slowly, or did
+/// not deserialise.
+async fn reserve_or_reject(pool: &WorkerPool) -> Result<Reservation, Error> {
+    Ok(pool.reserve().await?)
 }
 
 /// Read a request body, refusing one larger than [`max_request_bytes`].
@@ -139,13 +171,27 @@ async fn admit_or_reject(pool: &WorkerPool) -> Result<(), Error> {
 /// streaming. Actix's `PayloadConfig` does not cover this path: it bounds the
 /// `Bytes` and `String` extractors, not a raw `Payload` the handler drains
 /// itself.
-async fn payload_to_bytes(req: &HttpRequest, mut payload: Payload) -> Result<Bytes, Error> {
-    // A server built by `crate::server` always carries this; the default is
-    // the same bound, so a handler mounted without it is bounded too.
-    let max = req
+async fn payload_to_bytes(req: &HttpRequest, payload: Payload) -> Result<Bytes, Error> {
+    // A server built by `crate::server` always carries this; the defaults are
+    // the same bounds, so a handler mounted without it is bounded too.
+    let config = req
         .app_data::<Data<IngressConfig>>()
-        .map(|c| c.max_request_bytes)
-        .unwrap_or(IngressConfig::DEFAULT_MAX_REQUEST_BYTES);
+        .map(|c| **c.clone())
+        .unwrap_or_default();
+    tokio::time::timeout(
+        config.read_timeout,
+        read_payload(req, payload, config.max_request_bytes),
+    )
+    .await
+    .map_err(|_| {
+        ErrorRequestTimeout(format!(
+            "request body not received within {} seconds",
+            config.read_timeout.as_secs()
+        ))
+    })?
+}
+
+async fn read_payload(req: &HttpRequest, mut payload: Payload, max: usize) -> Result<Bytes, Error> {
     if let Some(declared) = req
         .headers()
         .get(actix_web::http::header::CONTENT_LENGTH)
@@ -295,13 +341,13 @@ pub(crate) async fn check(
     payload: Payload,
 ) -> Result<HttpResponse, Error> {
     info!("Starting to process request for /check...");
-    admit_or_reject(&pool).await?;
+    let reservation = reserve_or_reject(&pool).await?;
     let request = payload_to_bytes(&req, payload).await?;
     debug_request_body("Received request", &request);
     let (ppi, ir): (ProofPreimageVersioned, Option<WrappedIr>) =
         tagged_deserialize(&request[..]).map_err(ErrorBadRequest)?;
     let (_id, updates) = pool
-        .submit_and_subscribe(move || {
+        .submit_reserved(reservation, move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .unwrap();
@@ -367,7 +413,9 @@ pub(crate) async fn prove(
     payload: Payload,
 ) -> Result<HttpResponse, Error> {
     info!("Starting to process request for /prove...");
-    admit_or_reject(&pool).await?;
+    // Held across the body read: the slot is taken now, and given back
+    // automatically if this request never becomes work.
+    let reservation = reserve_or_reject(&pool).await?;
     let request = payload_to_bytes(&req, payload).await?;
     debug_request_body("Received request", &request);
     let (ppi, data, binding_input): (
@@ -384,7 +432,7 @@ pub(crate) async fn prove(
     let data = data.map(Arc::new);
     let data_resolver = data.clone();
     let (_id, updates) = pool
-        .submit_and_subscribe(move || {
+        .submit_reserved(reservation, move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -466,13 +514,13 @@ pub(crate) async fn prove_transaction(
     payload: Payload,
 ) -> Result<HttpResponse, Error> {
     info!("Starting to process request for /prove-tx...");
-    admit_or_reject(&pool).await?;
+    let reservation = reserve_or_reject(&pool).await?;
     let request = payload_to_bytes(&req, payload).await?;
     debug_request_body("Received request", &request);
     let (tx, keys): TransactionProvePayload<Signature> =
         tagged_deserialize(&request[..]).map_err(ErrorBadRequest)?;
     let (_id, updates) = pool
-        .submit_and_subscribe(move || {
+        .submit_reserved(reservation, move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .unwrap();

@@ -68,13 +68,13 @@ pub fn server_with_ingress(
             app
         }
     })
-    // Without these, a client that opens a connection and sends its body
-    // slowly holds a buffer for as long as it likes: actix's 5 s default
-    // covers the request head only, and the handlers drain the body
-    // themselves. The body read is bounded in bytes by
-    // `endpoints::max_request_bytes`; these bound it in time.
-    .client_request_timeout(std::time::Duration::from_secs(60))
-    .client_disconnect_timeout(std::time::Duration::from_secs(10))
+    // Actix's own deadlines are deliberately left at their defaults.
+    // `client_request_timeout` is a deadline for reading the request *head*
+    // (5 s) and `client_disconnect_timeout` one for connection shutdown;
+    // neither covers the `payload.next()` loop the handlers run, so raising
+    // them would have bought no body protection while weakening the head
+    // deadline twelvefold. The body is bounded in bytes and in time by
+    // `endpoints::IngressConfig`, at the only place that can see it.
     .bind(("0.0.0.0", port))?;
     let port = http_server.addrs()[0].port();
     let srv = http_server.run();
