@@ -1,0 +1,9 @@
+{
+  "binding_input": 42,
+  "k": 19,
+  "label": "zkir-minimal-assert",
+  "request": "k19-request.bin",
+  "request_bytes": 134520729,
+  "verifier_key": "k19-vk.bin",
+  "verifier_key_bytes": 1257
+}

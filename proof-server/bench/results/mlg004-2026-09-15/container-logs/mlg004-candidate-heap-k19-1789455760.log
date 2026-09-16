@@ -1,0 +1,125 @@
+[2m2026-09-15T07:02:40.410134Z[0m [32m INFO[0m [2mactix_server::builder[0m[2m:[0m starting 12 workers
+[2m2026-09-15T07:02:40.410153Z[0m [32m INFO[0m [2mactix_server::server[0m[2m:[0m Actix runtime found; starting in Actix runtime
+[2m2026-09-15T07:02:40.410155Z[0m [32m INFO[0m [2mactix_server::server[0m[2m:[0m starting service: "actix-web-service-0.0.0.0:6311", workers: 12, listening on: 0.0.0.0:6311
+[2m2026-09-15T07:02:40.437451Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 GET /health HTTP/1.1; took 0.000106s
+[2m2026-09-15T07:02:40.438850Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 GET /ready HTTP/1.1; took 0.000040s
+[2m2026-09-15T07:02:40.440489Z[0m [32m INFO[0m [2mmidnight_proof_server::endpoints[0m[2m:[0m Starting to process request for /prove...
+[2m2026-09-15T07:02:51.386909Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.start" [3mrss_mb[0m[2m=[0m3536 [3mhwm_mb[0m[2m=[0m4415
+[2m2026-09-15T07:02:51.386988Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.start" [3mrss_mb[0m[2m=[0m3536 [3mhwm_mb[0m[2m=[0m4415
+[2m2026-09-15T07:02:51.470613Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.end" [3mrss_mb[0m[2m=[0m3600 [3mhwm_mb[0m[2m=[0m4415
+[2m2026-09-15T07:02:51.470639Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.start" [3mrss_mb[0m[2m=[0m3600 [3mhwm_mb[0m[2m=[0m4415
+[2m2026-09-15T07:02:51.607002Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.end" [3mrss_mb[0m[2m=[0m3761 [3mhwm_mb[0m[2m=[0m4415
+[2m2026-09-15T07:02:51.607025Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.start" [3mrss_mb[0m[2m=[0m3761 [3mhwm_mb[0m[2m=[0m4415
+[2m2026-09-15T07:02:52.169927Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.end" [3mrss_mb[0m[2m=[0m4081 [3mhwm_mb[0m[2m=[0m4415
+[2m2026-09-15T07:02:52.169956Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.start" [3mrss_mb[0m[2m=[0m4081 [3mhwm_mb[0m[2m=[0m4415
+[2m2026-09-15T07:02:53.755377Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.end" [3mrss_mb[0m[2m=[0m4250 [3mhwm_mb[0m[2m=[0m4415
+[2m2026-09-15T07:02:53.755403Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.start" [3mrss_mb[0m[2m=[0m4250 [3mhwm_mb[0m[2m=[0m4415
+[2m2026-09-15T07:02:55.147824Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.end" [3mrss_mb[0m[2m=[0m4212 [3mhwm_mb[0m[2m=[0m4415
+[2m2026-09-15T07:02:55.795768Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.end" [3mrss_mb[0m[2m=[0m4212 [3mhwm_mb[0m[2m=[0m4415
+[2m2026-09-15T07:02:55.795795Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.start" [3mrss_mb[0m[2m=[0m4212 [3mhwm_mb[0m[2m=[0m4415
+[2m2026-09-15T07:02:55.795802Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.start" [3mrss_mb[0m[2m=[0m4212 [3mhwm_mb[0m[2m=[0m4415
+[2m2026-09-15T07:03:02.384861Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.drop_cosets.end" [3mrss_mb[0m[2m=[0m4724 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:02.395253Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.end" [3mrss_mb[0m[2m=[0m4276 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:02.395277Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.start" [3mrss_mb[0m[2m=[0m4276 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:04.996420Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.end" [3mrss_mb[0m[2m=[0m4228 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:05.229665Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_queries.start" [3mrss_mb[0m[2m=[0m4228 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:05.229773Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.start" [3mrss_mb[0m[2m=[0m4228 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:07.149530Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.end" [3mrss_mb[0m[2m=[0m4216 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:07.162171Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.end" [3mrss_mb[0m[2m=[0m3664 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:07.536714Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 POST /prove HTTP/1.1; took 27.096272s
+[2m2026-09-15T07:03:07.564748Z[0m [32m INFO[0m [2mmidnight_proof_server::endpoints[0m[2m:[0m Starting to process request for /prove...
+[2m2026-09-15T07:03:10.176157Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.start" [3mrss_mb[0m[2m=[0m3680 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:10.176210Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.start" [3mrss_mb[0m[2m=[0m3680 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:10.256392Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.end" [3mrss_mb[0m[2m=[0m3696 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:10.256419Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.start" [3mrss_mb[0m[2m=[0m3696 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:10.383929Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.end" [3mrss_mb[0m[2m=[0m3892 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:10.383962Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.start" [3mrss_mb[0m[2m=[0m3892 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:10.955138Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.end" [3mrss_mb[0m[2m=[0m4180 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:10.955167Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.start" [3mrss_mb[0m[2m=[0m4180 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:12.646885Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.end" [3mrss_mb[0m[2m=[0m4276 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:12.646924Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.start" [3mrss_mb[0m[2m=[0m4276 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:14.133868Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.end" [3mrss_mb[0m[2m=[0m4292 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:14.817411Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.end" [3mrss_mb[0m[2m=[0m4292 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:14.817439Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.start" [3mrss_mb[0m[2m=[0m4292 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:14.817448Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.start" [3mrss_mb[0m[2m=[0m4292 [3mhwm_mb[0m[2m=[0m4915
+[2m2026-09-15T07:03:22.104896Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.drop_cosets.end" [3mrss_mb[0m[2m=[0m4820 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:22.115222Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.end" [3mrss_mb[0m[2m=[0m4372 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:22.115247Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.start" [3mrss_mb[0m[2m=[0m4372 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:24.967458Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.end" [3mrss_mb[0m[2m=[0m4308 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:25.204217Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_queries.start" [3mrss_mb[0m[2m=[0m4308 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:25.204323Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.start" [3mrss_mb[0m[2m=[0m4308 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:27.403152Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.end" [3mrss_mb[0m[2m=[0m4292 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:27.418596Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.end" [3mrss_mb[0m[2m=[0m3696 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:27.797919Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 POST /prove HTTP/1.1; took 20.233196s
+[2m2026-09-15T07:03:27.800418Z[0m [32m INFO[0m [2mmidnight_proof_server::endpoints[0m[2m:[0m Starting to process request for /prove...
+[2m2026-09-15T07:03:30.549192Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.start" [3mrss_mb[0m[2m=[0m3712 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:30.549231Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.start" [3mrss_mb[0m[2m=[0m3712 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:30.633429Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.end" [3mrss_mb[0m[2m=[0m3728 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:30.633458Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.start" [3mrss_mb[0m[2m=[0m3728 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:30.758184Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.end" [3mrss_mb[0m[2m=[0m3924 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:30.758224Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.start" [3mrss_mb[0m[2m=[0m3924 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:31.323156Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.end" [3mrss_mb[0m[2m=[0m4212 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:31.323190Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.start" [3mrss_mb[0m[2m=[0m4212 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:33.018893Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.end" [3mrss_mb[0m[2m=[0m4308 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:33.018927Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.start" [3mrss_mb[0m[2m=[0m4308 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:34.460100Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.end" [3mrss_mb[0m[2m=[0m4268 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:35.195523Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.end" [3mrss_mb[0m[2m=[0m4268 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:35.195615Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.start" [3mrss_mb[0m[2m=[0m4268 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:35.195626Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.start" [3mrss_mb[0m[2m=[0m4268 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:41.795935Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.drop_cosets.end" [3mrss_mb[0m[2m=[0m4780 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:41.806509Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.end" [3mrss_mb[0m[2m=[0m4332 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:41.806535Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.start" [3mrss_mb[0m[2m=[0m4332 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:44.736202Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.end" [3mrss_mb[0m[2m=[0m4300 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:44.954611Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_queries.start" [3mrss_mb[0m[2m=[0m4268 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:44.954821Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.start" [3mrss_mb[0m[2m=[0m4268 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:47.014451Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.end" [3mrss_mb[0m[2m=[0m4252 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:47.027465Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.end" [3mrss_mb[0m[2m=[0m3712 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:47.432031Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 POST /prove HTTP/1.1; took 19.631750s
+[2m2026-09-15T07:03:47.433659Z[0m [32m INFO[0m [2mmidnight_proof_server::endpoints[0m[2m:[0m Starting to process request for /prove...
+[2m2026-09-15T07:03:49.941313Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.start" [3mrss_mb[0m[2m=[0m3729 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:49.941346Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.start" [3mrss_mb[0m[2m=[0m3729 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:50.023388Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.end" [3mrss_mb[0m[2m=[0m3745 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:50.023419Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.start" [3mrss_mb[0m[2m=[0m3745 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:50.149037Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.end" [3mrss_mb[0m[2m=[0m3941 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:50.149069Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.start" [3mrss_mb[0m[2m=[0m3941 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:50.705869Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.end" [3mrss_mb[0m[2m=[0m4229 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:50.705903Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.start" [3mrss_mb[0m[2m=[0m4229 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:52.298597Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.end" [3mrss_mb[0m[2m=[0m4325 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:52.298637Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.start" [3mrss_mb[0m[2m=[0m4325 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:53.718975Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.end" [3mrss_mb[0m[2m=[0m4285 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:54.347877Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.end" [3mrss_mb[0m[2m=[0m4285 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:54.347903Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.start" [3mrss_mb[0m[2m=[0m4285 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:03:54.347910Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.start" [3mrss_mb[0m[2m=[0m4285 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:00.762013Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.drop_cosets.end" [3mrss_mb[0m[2m=[0m4797 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:00.772300Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.end" [3mrss_mb[0m[2m=[0m4349 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:00.772321Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.start" [3mrss_mb[0m[2m=[0m4349 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:03.922392Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.end" [3mrss_mb[0m[2m=[0m4317 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:04.143354Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_queries.start" [3mrss_mb[0m[2m=[0m4285 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:04.143454Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.start" [3mrss_mb[0m[2m=[0m4285 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:06.012322Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.end" [3mrss_mb[0m[2m=[0m4269 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:06.023543Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.end" [3mrss_mb[0m[2m=[0m3729 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:06.391455Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 POST /prove HTTP/1.1; took 18.957817s
+[2m2026-09-15T07:04:06.421278Z[0m [32m INFO[0m [2mmidnight_proof_server::endpoints[0m[2m:[0m Starting to process request for /prove...
+[2m2026-09-15T07:04:08.903518Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.start" [3mrss_mb[0m[2m=[0m3744 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:08.903559Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.start" [3mrss_mb[0m[2m=[0m3744 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:08.983417Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.end" [3mrss_mb[0m[2m=[0m3760 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:08.983443Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.start" [3mrss_mb[0m[2m=[0m3760 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:09.109971Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.end" [3mrss_mb[0m[2m=[0m3956 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:09.109997Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.start" [3mrss_mb[0m[2m=[0m3956 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:09.683949Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.end" [3mrss_mb[0m[2m=[0m4244 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:09.683984Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.start" [3mrss_mb[0m[2m=[0m4244 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:11.475762Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.end" [3mrss_mb[0m[2m=[0m4340 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:11.475787Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.start" [3mrss_mb[0m[2m=[0m4340 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:12.851905Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.end" [3mrss_mb[0m[2m=[0m4302 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:13.495293Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.end" [3mrss_mb[0m[2m=[0m4302 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:13.495321Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.start" [3mrss_mb[0m[2m=[0m4302 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:13.495329Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.start" [3mrss_mb[0m[2m=[0m4302 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:20.047293Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.drop_cosets.end" [3mrss_mb[0m[2m=[0m4814 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:20.058646Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.end" [3mrss_mb[0m[2m=[0m4366 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:20.058675Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.start" [3mrss_mb[0m[2m=[0m4366 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:22.515115Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.end" [3mrss_mb[0m[2m=[0m4334 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:22.701550Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_queries.start" [3mrss_mb[0m[2m=[0m4302 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:22.701639Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.start" [3mrss_mb[0m[2m=[0m4302 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:24.558612Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.end" [3mrss_mb[0m[2m=[0m4284 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:24.569792Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.end" [3mrss_mb[0m[2m=[0m3744 [3mhwm_mb[0m[2m=[0m5011
+[2m2026-09-15T07:04:24.938087Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 POST /prove HTTP/1.1; took 18.516833s

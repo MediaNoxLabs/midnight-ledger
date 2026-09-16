@@ -34,7 +34,7 @@ use serialize::{tagged_deserialize, tagged_serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use storage::db::InMemoryDB;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use transient_crypto::commitment::PedersenRandomness;
 use transient_crypto::curve::Fr;
 use transient_crypto::proofs::{KeyLocation, ProvingKeyMaterial, Resolver as ResolverT, WrappedIr};
@@ -303,7 +303,16 @@ pub(crate) async fn prove(
 
                         let proof = versioned_ir::prove(ppi, &proving_data.ir_source, &resolver)
                             .await
-                            .map_err(WorkError::BadInput)?
+                            .map_err(|e| match e {
+                                versioned_ir::ProveError::BadInput(msg) => WorkError::BadInput(msg),
+                                versioned_ir::ProveError::ServerEnvironment(msg) => {
+                                    // The request was fine; this server is not.
+                                    // Say so in the log, where the operator
+                                    // looks, and answer 500, not 400.
+                                    warn!("proving failed on the server's environment: {msg}");
+                                    WorkError::InternalError(msg)
+                                }
+                            })?
                             .0;
 
                         ProofVersioned::V2(proof)
