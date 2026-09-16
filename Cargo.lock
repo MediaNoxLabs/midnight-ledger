@@ -3584,7 +3584,6 @@ dependencies = [
  "derive-where",
  "fake",
  "ff",
- "flate2",
  "futures",
  "group",
  "k256",
