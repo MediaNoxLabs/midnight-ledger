@@ -30,7 +30,7 @@ pub struct SchnorrSignature {
     pub response: EmbeddedFr,
 }
 
-/// Computes the Schnorr challenge as Hash(ann_x || ann_y || pk_x || pk_y || msg).
+/// Computes the Schnorr challenge as Hash(`ann_x` || `ann_y` || `pk_x` || `pk_y` || msg).
 ///
 /// The hash is computed using Poseidon over the outer curve scalar field (Fr),
 /// then reduced modulo the embedded curve scalar field order.
