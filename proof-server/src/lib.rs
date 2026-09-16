@@ -20,6 +20,7 @@ use actix_web::web::{self, Data};
 use actix_web::{App, HttpServer};
 use std::sync::Arc;
 
+use crate::endpoints::IngressConfig;
 use crate::endpoints::{
     check, fetch_k, get_k, health, proof_versions, prove, prove_transaction, ready, version,
 };
@@ -30,10 +31,26 @@ pub mod versioned_ir;
 pub mod worker_pool;
 
 pub fn server(port: u16, fetch_params: bool, pool: WorkerPool) -> std::io::Result<(Server, u16)> {
+    server_with_ingress(port, fetch_params, pool, IngressConfig::from_env())
+}
+
+/// [`server`] with an explicit ingress bound, rather than the environment's.
+///
+/// The seam a test needs: the body limit is what decides whether an oversize
+/// request is refused before it is read, and a test that had to set an
+/// environment variable to exercise it would be `unsafe` under Rust 2024 and
+/// would race every other test in the binary.
+pub fn server_with_ingress(
+    port: u16,
+    fetch_params: bool,
+    pool: WorkerPool,
+    ingress: IngressConfig,
+) -> std::io::Result<(Server, u16)> {
     let pool = Arc::new(pool);
     let http_server = HttpServer::new(move || {
         let app = App::new()
             .app_data(Data::new(pool.clone()))
+            .app_data(Data::new(ingress))
             .service(prove_transaction)
             .service(prove)
             .service(check)
@@ -51,6 +68,13 @@ pub fn server(port: u16, fetch_params: bool, pool: WorkerPool) -> std::io::Resul
             app
         }
     })
+    // Actix's own deadlines are deliberately left at their defaults.
+    // `client_request_timeout` is a deadline for reading the request *head*
+    // (5 s) and `client_disconnect_timeout` one for connection shutdown;
+    // neither covers the `payload.next()` loop the handlers run, so raising
+    // them would have bought no body protection while weakening the head
+    // deadline twelvefold. The body is bounded in bytes and in time by
+    // `endpoints::IngressConfig`, at the only place that can see it.
     .bind(("0.0.0.0", port))?;
     let port = http_server.addrs()[0].port();
     let srv = http_server.run();

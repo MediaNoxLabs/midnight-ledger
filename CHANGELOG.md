@@ -6,6 +6,21 @@ with `zswap` being tracked in [Changelog Zswap](./CHANGELOG_zswap.md).
 
 ## Unreleased
 
+- fix(proof-server): bound ingress, not only proving. A `/prove`, `/prove-tx`
+  or `/check` request **takes its queue slot before its body is read** and
+  gets it back automatically if the request never becomes work, so the memory
+  in flight is bounded by `job_capacity` rather than by the number of open
+  connections; a full queue answers 429 immediately. A body over
+  `MIDNIGHT_PROOF_SERVER_MAX_REQUEST_BYTES` (default 512 MiB) is refused with
+  413, by its declared `Content-Length` where there is one and while streaming
+  otherwise, and one that takes longer than
+  `MIDNIGHT_PROOF_SERVER_READ_TIMEOUT` (default 120 s) with 408. The
+  proving-key material is shared with the resolver rather than deep-copied per
+  request, and the hex debug dump is skipped for a body over 64 KiB.
+  `job_capacity` had bounded proving but not ingress, so any number of
+  in-flight requests could each hold a k=20 body — hundreds of MB — while the
+  queue that was meant to bound the server sat full.
+
 ## Ledger 9.1.0.0-rc.4
 
 - fix: dust registration accounting moved to block time, rather than declared

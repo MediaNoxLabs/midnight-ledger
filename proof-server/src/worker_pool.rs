@@ -122,6 +122,37 @@ impl Job {
     }
 }
 
+/// A slot held in the bounded queue for a request that is still being read.
+///
+/// Dropping it without submitting gives the slot back. The release is spawned
+/// rather than awaited because `Drop` cannot await and the registry is behind
+/// an async mutex; it runs on the same runtime the handler is on.
+pub struct Reservation {
+    id: Uuid,
+    requests: Requests,
+    committed: bool,
+}
+
+impl Reservation {
+    /// The job id this reservation holds.
+    pub fn id(&self) -> Uuid {
+        self.id
+    }
+}
+
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+        let requests = self.requests.clone();
+        let id = self.id;
+        task::spawn(async move {
+            requests.release(id).await;
+        });
+    }
+}
+
 #[derive(Clone)]
 pub struct Requests {
     pub capacity: usize,
@@ -184,6 +215,16 @@ impl Requests {
         let id = Uuid::new_v4();
         reqs.insert(id, req);
         Ok(id)
+    }
+
+    /// Give a reserved slot back without ever running it.
+    ///
+    /// The counterpart to [`new_req`](Self::new_req): a handler that reserves
+    /// capacity before reading a request body must return the slot if the
+    /// request never becomes work, or the queue leaks a Pending job that only
+    /// the TTL sweep will clear.
+    async fn release(&self, id: Uuid) {
+        self.reqs.lock().await.remove(&id);
     }
 
     async fn get(&self, id: Uuid) -> Option<Job> {
@@ -314,6 +355,50 @@ impl WorkerPool {
     }
 
     /// Receives the result of a completed work item
+    /// Take a slot in the bounded queue before there is any work to put in it.
+    ///
+    /// This is the admission an ingress handler needs. Checking `is_full`
+    /// before reading a body is not enough: several requests can each observe
+    /// spare capacity, none of them having taken it, and then buffer a body
+    /// apiece — so the memory in flight is bounded by the number of concurrent
+    /// connections rather than by `job_capacity`, which is the bound that was
+    /// supposed to hold.
+    ///
+    /// [`Requests::new_req`] is already atomic, so calling it early *is* the
+    /// reservation: the slot counts as Pending from this moment. The returned
+    /// guard gives it back if the request never becomes work.
+    pub async fn reserve(&self) -> Result<Reservation, WorkerPoolError> {
+        let id = self.requests.new_req().await?;
+        Ok(Reservation {
+            id,
+            requests: self.requests.clone(),
+            committed: false,
+        })
+    }
+
+    /// Submit work against a slot already taken by [`reserve`](Self::reserve),
+    /// and subscribe to its updates.
+    pub async fn submit_reserved<F>(
+        &self,
+        mut reservation: Reservation,
+        work: F,
+    ) -> Result<(Uuid, Arc<Receiver<JobStatus>>), WorkerPoolError>
+    where
+        F: FnOnce() -> Result<Vec<u8>, WorkError> + Send + 'static,
+    {
+        let id = reservation.id;
+        reservation.committed = true;
+        self.sender
+            .send(WorkItem {
+                id,
+                work: Box::new(work),
+            })
+            .await
+            .map_err(|_| WorkerPoolError::ChannelClosed)?;
+        let updates = self.subscribe(id).await?;
+        Ok((id, updates))
+    }
+
     pub async fn poll(&self, id: Uuid) -> Option<JobStatus> {
         let job = self.requests.get(id).await;
         if let Some(ref job) = job {
