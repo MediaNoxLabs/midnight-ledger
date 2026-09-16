@@ -139,7 +139,13 @@ impl ParamsProverProvider for base_crypto::data_provider::MidnightDataProvider {
             // it is the one place that may create a companion, and it never
             // rewrites a published inode, which is what keeps every live
             // mapping sound (F-034).
-            let cache = CompanionCache::new(self.dir.clone());
+            // SAFETY: `self.dir` is this data provider's own cache directory —
+            // the one it downloads the SRS into and the only writer it has. The
+            // obligation `from_trusted_dir` states is the same one already
+            // placed in those SRS files; a provider pointed at a directory
+            // other code may rewrite is misconfigured for both.
+            #[allow(unsafe_code)]
+            let cache = unsafe { CompanionCache::from_trusted_dir(self.dir.clone()) };
             if let Some(mapped) = cache.open(&name)? {
                 tracing::info!(
                     target: "midnight_bench",
@@ -306,9 +312,9 @@ impl ParamsProver {
                 "companion path must name a file",
             )
         })?;
-        match CompanionCache::new(dir)
-            .publish_file(file_name, |file| self.0.write_mmap_companion(file))?
-        {
+        match CompanionCache::publish_into(dir, file_name, |file| {
+            self.0.write_mmap_companion(file)
+        })? {
             PublishOutcome::Published => Ok(()),
             PublishOutcome::AlreadyPublished => Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
@@ -381,15 +387,16 @@ pub enum PublishOutcome {
 ///
 /// # Trust boundary
 ///
-/// The guarantee is against *this crate*: nothing here writes to a published
-/// companion. It cannot be a guarantee against every other process. The
-/// cache directory must be one where only cooperating code writes — the
-/// application's own cache directory, not a shared or user-editable one. That
-/// is the same trust already placed in the SRS files beside the companions;
-/// a companion fetched, synced, or accepted from another party is outside it.
-/// Mapping an arbitrary path that offers no such guarantee is
-/// [`ParamsProver::read_mmap_path`], which is `unsafe` for exactly this
-/// reason.
+/// The guarantee above is against *this crate*: nothing here writes to a
+/// published companion. It cannot be a guarantee against every other process,
+/// and documentation cannot impose that obligation on a safe constructor — so
+/// it does not try to. Opening a companion requires a cache built with
+/// [`CompanionCache::from_trusted_dir`], which is `unsafe`, and the caller
+/// carries the obligation named there.
+///
+/// Publishing carries no such obligation and stays safe:
+/// [`CompanionCache::publish_into`] maps only its own private temp file, which
+/// no other party can name, and drops that mapping before the rename.
 #[cfg(not(target_family = "wasm"))]
 #[derive(Clone, Debug)]
 pub struct CompanionCache {
@@ -406,9 +413,35 @@ impl CompanionCache {
 
     const TEMP_INFIX: &'static str = ".tmp-";
 
-    /// A cache rooted at `dir`. See the type-level trust boundary for what
-    /// `dir` must be.
-    pub fn new(dir: impl Into<std::path::PathBuf>) -> Self {
+    /// A cache rooted at `dir`, able to open the companions published there.
+    ///
+    /// Publishing does not need this constructor — [`Self::publish_into`] is
+    /// safe. This one exists because *opening* hands out `ParamsProver`s whose
+    /// field elements are slices into a live file mapping.
+    ///
+    /// # Safety
+    ///
+    /// `dir` must be a directory only cooperating code writes to. For as long
+    /// as this cache or any clone of it exists, **and** for as long as any
+    /// [`ParamsProver`] it returned is alive, no party — this process or any
+    /// other — may modify, truncate, or replace the contents of a published
+    /// companion in it. `memmap2` states plainly that in- or out-of-process
+    /// modification of a mapped file makes use of the map undefined behaviour,
+    /// and the typed slices handed out here are exactly that use.
+    ///
+    /// The application's own cache directory qualifies. A world-writable
+    /// directory, a user-editable one, a network or cloud-synced folder, and
+    /// anywhere a companion arrives from another party do not.
+    ///
+    /// Mapping a single arbitrary path under the same obligation is
+    /// [`ParamsProver::read_mmap_path`].
+    ///
+    /// ```compile_fail
+    /// // The capability is not available without an `unsafe` block.
+    /// use midnight_transient_crypto::proofs::CompanionCache;
+    /// let _ = CompanionCache::from_trusted_dir("/tmp");
+    /// ```
+    pub unsafe fn from_trusted_dir(dir: impl Into<std::path::PathBuf>) -> Self {
         Self { dir: dir.into() }
     }
 
@@ -418,12 +451,49 @@ impl CompanionCache {
     }
 
     /// Where the companion for the SRS called `name` lives once published.
-    pub fn published_path(&self, name: &str) -> std::path::PathBuf {
-        self.dir.join(Self::file_name(name))
+    ///
+    /// Fails with [`io::ErrorKind::InvalidInput`] unless the resulting file
+    /// name is a single ordinary path component. `PathBuf::join` discards the
+    /// cache root when handed an absolute path, and `..` walks out of it, so an
+    /// unchecked name would let a safe call reach any file on the system —
+    /// which is the capability [`Self::from_trusted_dir`] is `unsafe` about.
+    pub fn published_path(&self, name: &str) -> io::Result<std::path::PathBuf> {
+        // Both halves, because neither implies the other. `..` composes to the
+        // harmless-looking `...mmap` and would pass a check on the composed
+        // name alone, while `../x` composes to `../x.mmap` and would pass a
+        // check on the SRS name alone if it were a suffix that made it escape.
+        Self::check_component(std::ffi::OsStr::new(name))?;
+        let file_name = Self::file_name(name);
+        Self::check_component(std::ffi::OsStr::new(&file_name))?;
+        Ok(self.dir.join(file_name))
     }
 
     fn file_name(name: &str) -> String {
         format!("{name}.mmap")
+    }
+
+    /// Accept only a single ordinary path component: no separator of either
+    /// platform's kind, no `.` or `..`, no root or prefix, not empty.
+    fn check_component(name: &std::ffi::OsStr) -> io::Result<()> {
+        use std::path::Component;
+        let reject = |why: &str| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("companion name {name:?} {why}"),
+            )
+        };
+        let text = name.to_string_lossy();
+        if text.is_empty() {
+            return Err(reject("is empty"));
+        }
+        if text.contains(std::path::is_separator) || text.contains('\\') {
+            return Err(reject("contains a path separator"));
+        }
+        let mut components = std::path::Path::new(name).components();
+        match (components.next(), components.next()) {
+            (Some(Component::Normal(only)), None) if only == name => Ok(()),
+            _ => Err(reject("is not a single ordinary path component")),
+        }
     }
 
     /// The prefix every temp file for `file_name` carries: hidden, and unique
@@ -436,7 +506,7 @@ impl CompanionCache {
     /// published yet. A file that exists is complete by construction; a file
     /// that fails validation is reported as `InvalidData`, never mapped.
     pub fn open(&self, name: &str) -> io::Result<Option<ParamsProver>> {
-        let path = self.published_path(name);
+        let path = self.published_path(name)?;
         match std::fs::File::open(&path) {
             Ok(file) => Self::map_published(&file).map(Some),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -457,6 +527,7 @@ impl CompanionCache {
         if let Some(mapped) = self.open(name)? {
             return Ok(mapped);
         }
+        let published_path = self.published_path(name)?;
         let eager = build()?;
         let file_name = Self::file_name(name);
         self.publish_file(std::ffi::OsStr::new(&file_name), |file| {
@@ -468,7 +539,7 @@ impl CompanionCache {
                 io::ErrorKind::NotFound,
                 format!(
                     "companion {} disappeared between publication and open",
-                    self.published_path(name).display()
+                    published_path.display()
                 ),
             )
         })
@@ -486,16 +557,35 @@ impl CompanionCache {
         file_name: &std::ffi::OsStr,
         write: impl FnOnce(&mut std::fs::File) -> io::Result<()>,
     ) -> io::Result<PublishOutcome> {
-        let final_path = self.dir.join(file_name);
+        Self::publish_into(&self.dir, file_name, write)
+    }
+
+    /// Publish `file_name` into `dir`, with the discipline [`Self::publish_file`]
+    /// describes and without needing the mapping capability.
+    ///
+    /// This is safe, and deliberately so: the only mapping publication makes is
+    /// of its own private temp file, whose name no other party knows, and that
+    /// mapping is dropped before the rename. Nothing a caller can name is
+    /// mapped and handed out, so nothing here can be invalidated underneath a
+    /// live `ParamsProver`. Reading a companion back is the part that needs
+    /// [`Self::from_trusted_dir`].
+    ///
+    /// `file_name` must be a single ordinary path component; see
+    /// [`Self::published_path`].
+    pub fn publish_into(
+        dir: &std::path::Path,
+        file_name: &std::ffi::OsStr,
+        write: impl FnOnce(&mut std::fs::File) -> io::Result<()>,
+    ) -> io::Result<PublishOutcome> {
+        Self::check_component(file_name)?;
+        let final_path = dir.join(file_name);
         if final_path.exists() {
             return Ok(PublishOutcome::AlreadyPublished);
         }
-        self.sweep_stale_temps(file_name);
+        Self::sweep_stale_temps_in(dir, file_name);
 
         let prefix = Self::temp_prefix(file_name);
-        let mut temp = tempfile::Builder::new()
-            .prefix(&prefix)
-            .tempfile_in(&self.dir)?;
+        let mut temp = tempfile::Builder::new().prefix(&prefix).tempfile_in(dir)?;
         // `NamedTempFile` removes the file on drop, so every early return
         // below — including the `?`s — leaves no temp file behind.
         write(temp.as_file_mut())?;
@@ -504,7 +594,7 @@ impl CompanionCache {
 
         match temp.persist_noclobber(&final_path) {
             Ok(_) => {
-                self.sync_dir();
+                Self::sync_dir_at(dir);
                 Ok(PublishOutcome::Published)
             }
             Err(e) if e.error.kind() == io::ErrorKind::AlreadyExists => {
@@ -546,9 +636,9 @@ impl CompanionCache {
     /// reach its rename. Age-gated so a live publisher's file is never
     /// touched; failures are ignored — a stale temp file is harmless, and the
     /// publication that follows does not depend on the sweep.
-    fn sweep_stale_temps(&self, file_name: &std::ffi::OsStr) {
+    fn sweep_stale_temps_in(dir: &std::path::Path, file_name: &std::ffi::OsStr) {
         let prefix = Self::temp_prefix(file_name);
-        let Ok(entries) = std::fs::read_dir(&self.dir) else {
+        let Ok(entries) = std::fs::read_dir(dir) else {
             return;
         };
         let now = std::time::SystemTime::now();
@@ -573,10 +663,10 @@ impl CompanionCache {
     /// filesystems that cannot fsync a directory still have the complete file,
     /// only its name may not survive a power loss — which the next publisher
     /// repairs by publishing again.
-    fn sync_dir(&self) {
+    fn sync_dir_at(dir: &std::path::Path) {
         #[cfg(unix)]
         {
-            if let Ok(dir) = std::fs::File::open(&self.dir) {
+            if let Ok(dir) = std::fs::File::open(dir) {
                 let _ = dir.sync_all();
             }
         }
@@ -1496,9 +1586,9 @@ mod companion_cache_tests {
     #[test]
     fn nothing_published_opens_as_none() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let cache = CompanionCache::new(dir.path());
+        let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
         assert!(cache.open(NAME).expect("open").is_none());
-        assert!(!cache.published_path(NAME).exists());
+        assert!(!cache.published_path(NAME).expect("valid name").exists());
     }
 
     #[test]
@@ -1510,7 +1600,7 @@ mod companion_cache_tests {
         let barrier = Arc::new(Barrier::new(8));
         let handles: Vec<_> = (0..8)
             .map(|_| {
-                let cache = CompanionCache::new(dir.path());
+                let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
                 let source = source.clone();
                 let builds = Arc::clone(&builds);
                 let barrier = Arc::clone(&barrier);
@@ -1547,12 +1637,12 @@ mod companion_cache_tests {
     #[test]
     fn a_published_companion_is_never_rewritten_while_mapped() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let cache = CompanionCache::new(dir.path());
+        let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
         let first = small_params();
         let mapped = cache
             .open_or_build(NAME, || Ok(first.clone()))
             .expect("first publication");
-        let path = cache.published_path(NAME);
+        let path = cache.published_path(NAME).expect("valid name");
         let bytes_before = std::fs::read(&path).expect("read companion");
 
         // A second, different SRS asks to be written to the same path while
@@ -1582,7 +1672,7 @@ mod companion_cache_tests {
         let expected = digest(&source);
         let barrier = Arc::new(Barrier::new(5));
         let builder = {
-            let cache = CompanionCache::new(dir.path());
+            let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
             let barrier = Arc::clone(&barrier);
             std::thread::spawn(move || {
                 barrier.wait();
@@ -1591,7 +1681,7 @@ mod companion_cache_tests {
         };
         let readers: Vec<_> = (0..4)
             .map(|_| {
-                let cache = CompanionCache::new(dir.path());
+                let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
                 let barrier = Arc::clone(&barrier);
                 std::thread::spawn(move || {
                     barrier.wait();
@@ -1622,7 +1712,7 @@ mod companion_cache_tests {
     #[test]
     fn a_write_failure_publishes_nothing_and_leaves_no_temp() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let cache = CompanionCache::new(dir.path());
+        let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
         let outcome = cache.publish_file(std::ffi::OsStr::new("k4.mmap"), |file| {
             file.write_all(b"partial")?;
             Err(io::Error::other("injected write failure"))
@@ -1636,7 +1726,7 @@ mod companion_cache_tests {
     #[test]
     fn a_short_write_fails_validation_and_publishes_nothing() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let cache = CompanionCache::new(dir.path());
+        let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
         let full = {
             let mut buf = Vec::new();
             small_params()
@@ -1659,7 +1749,7 @@ mod companion_cache_tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let cache_dir = dir.path().join("cache");
         std::fs::create_dir(&cache_dir).expect("mkdir");
-        let cache = CompanionCache::new(&cache_dir);
+        let cache = unsafe { CompanionCache::from_trusted_dir(&cache_dir) };
         let cache_dir_for_hook = cache_dir.clone();
         let err = cache
             .publish_file(std::ffi::OsStr::new("k4.mmap"), move |file| {
@@ -1676,7 +1766,7 @@ mod companion_cache_tests {
     #[test]
     fn an_interrupted_publication_is_swept_and_a_fresh_one_is_not() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let cache = CompanionCache::new(dir.path());
+        let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
         let prefix = CompanionCache::temp_prefix(std::ffi::OsStr::new(&format!("{NAME}.mmap")));
 
         // A crashed publisher from long ago: garbage bytes, two hours old.
@@ -1704,13 +1794,13 @@ mod companion_cache_tests {
             fresh.exists(),
             "a live publisher's temp file is not touched"
         );
-        assert!(cache.published_path(NAME).exists());
+        assert!(cache.published_path(NAME).expect("valid name").exists());
     }
 
     #[test]
     fn open_or_build_reuses_a_publication_without_building() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let cache = CompanionCache::new(dir.path());
+        let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
         let source = small_params();
         cache
             .open_or_build(NAME, || Ok(source.clone()))
@@ -1721,5 +1811,110 @@ mod companion_cache_tests {
             })
             .expect("second");
         assert_eq!(digest(&reused), digest(&source));
+    }
+    /// Every name that is not a single ordinary path component is refused,
+    /// by `published_path`, by `open`, and by publication — before any file
+    /// system call is made with it. `PathBuf::join` discards the cache root
+    /// when handed an absolute path and `..` walks out of it, so without this
+    /// a safe call on a cache could read or create a file anywhere the process
+    /// can reach. F-038.
+    #[test]
+    fn a_name_that_is_not_one_component_is_refused_everywhere() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let outside = dir.path().parent().expect("parent").join("escaped.mmap");
+        let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
+
+        for name in [
+            "../escaped",
+            "../../escaped",
+            "sub/escaped",
+            "..",
+            ".",
+            "",
+            "a\\b",
+        ] {
+            let err = cache
+                .published_path(name)
+                .expect_err("published_path must refuse this name");
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "name {name:?}");
+
+            // `ParamsProver` is not `Debug`, so these cannot use `expect_err`.
+            let err = match cache.open(name) {
+                Err(e) => e,
+                Ok(_) => panic!("open must refuse the name {name:?}"),
+            };
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "name {name:?}");
+
+            let err = match cache.open_or_build(name, || panic!("must not build for {name:?}")) {
+                Err(e) => e,
+                Ok(_) => panic!("open_or_build must refuse the name {name:?}"),
+            };
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "name {name:?}");
+        }
+
+        // An absolute name is the other half: `join` would drop the root
+        // entirely and hand back the caller's own path.
+        let absolute = dir.path().join("absolute.mmap");
+        let absolute = absolute.to_str().expect("utf-8");
+        assert_eq!(
+            cache
+                .published_path(absolute)
+                .expect_err("absolute name")
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+
+        assert!(
+            !outside.exists(),
+            "nothing may be created outside the cache"
+        );
+    }
+
+    /// Publication refuses the same names, through both entry points, and
+    /// creates nothing when it does.
+    #[test]
+    fn publication_refuses_a_name_that_is_not_one_component() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let outside = dir.path().parent().expect("parent").join("escaped.mmap");
+        let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
+
+        for name in ["../escaped.mmap", "sub/escaped.mmap", "..", ""] {
+            let os = std::ffi::OsStr::new(name);
+            let err = cache
+                .publish_file(os, |_| panic!("must not write for {name:?}"))
+                .expect_err("publish_file must refuse this name");
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "name {name:?}");
+
+            let err = CompanionCache::publish_into(dir.path(), os, |_| {
+                panic!("must not write for {name:?}")
+            })
+            .expect_err("publish_into must refuse this name");
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "name {name:?}");
+        }
+
+        assert!(
+            !outside.exists(),
+            "nothing may be created outside the cache"
+        );
+        assert_eq!(
+            std::fs::read_dir(dir.path()).expect("read_dir").count(),
+            0,
+            "a refused publication leaves the directory untouched"
+        );
+    }
+
+    /// Publishing needs no `unsafe`: it maps only its own private temp file.
+    /// This is the safe path `ParamsProver::write_mmap_companion` takes.
+    #[test]
+    fn publish_into_is_safe_and_publishes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let source = small_params();
+        let outcome =
+            CompanionCache::publish_into(dir.path(), std::ffi::OsStr::new("k4.mmap"), |file| {
+                source.0.write_mmap_companion(file)
+            })
+            .expect("publish");
+        assert_eq!(outcome, PublishOutcome::Published);
+        assert!(dir.path().join("k4.mmap").exists());
     }
 }
