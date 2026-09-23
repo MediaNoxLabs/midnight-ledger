@@ -47,13 +47,31 @@ proof. A profile that is a sensible production default: spill on, floor `18`.
 
 - **400** — the request is at fault: malformed key material, an IR of a
   circuit class this prover does not handle (`version.minor` 0/1 is the
-  legacy v1 prover; 2 is the current one), a failing constraint.
-- **500** — the server's environment is at fault: a spill directory that
-  cannot take a temp file, a full or read-only volume, an unsupported
-  filesystem. The body and the server log both name the operation and the
-  directory (`Could not init pk: create spill temp file in /spill: No such
-  file or directory`). A 500 from a valid request means the deployment, not
-  the client, needs fixing.
+  legacy v1 prover; 2 is the current one), a failing constraint. The body says
+  what was wrong with the request.
+- **500, the environment** — the server's environment is at fault: a spill
+  directory that cannot take a temp file, a full or read-only volume, an
+  unsupported filesystem, or a companion in the server's own parameter cache
+  it cannot read. The body and the log both name the operation and the path
+  (`server environment: Could not init pk: create spill temp file in /spill:
+  No such file or directory`). That disclosure is deliberate: it is this
+  server's own configuration, never another client's data, and it is the one
+  thing an operator needs without going to look for a container's logs. A 500
+  from a valid request means the deployment, not the client, needs fixing.
+- **500, anything else** — a bug. The body is the bare text `internal error`;
+  the message describes the prover's internals and the client can do nothing
+  with it, so it goes only to the log.
+
+### How the two 500s are told apart
+
+Not by error kind. A corrupt `bls_midnight_2pN.mmap` in the server's own cache
+fails with `InvalidData`, exactly like a client sending malformed key bytes —
+and answering it with 400 sends the operator's problem to the client as a bug
+report about their valid request. So failures from loading the server's
+parameters are *tagged* with their provenance where they happen, and the
+classifier reads the tag. The kind test that remains covers the only other
+filesystem the prover touches on its own account, the spill directory the
+server's own policy chose.
 - **429** — the bounded queue is full; **412** — the job id is unknown;
   **400** also for a job that is no longer pending.
 

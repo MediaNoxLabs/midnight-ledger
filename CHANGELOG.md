@@ -18,6 +18,24 @@ with `zswap` being tracked in [Changelog Zswap](./CHANGELOG_zswap.md).
 - feat: `IrMinorVersion::V1` marks an `IrSource` carrying `verify_proof_vks`, and is now the default. `IrSource`'s `Serializable` is hand-written and branches on it, so `V0` blobs keep their exact byte layout and still load; serializing a `V0` that carries key material is an error rather than a silent drop.
 - fix: `zkir-wasm`'s `prove` and `check` converted a preimage for the v1 pipeline by re-deserializing the raw request bytes as `transient_crypto_old::proofs::ProofPreimage`.
 
+- fix(proof-server): classify prover failures by the provenance of the input
+  that failed, not by its `io::ErrorKind`. A corrupt or incompatible companion
+  in the server's *own* parameter cache fails with `InvalidData`, exactly like
+  a client sending malformed key bytes, and was answered with 400 — sending the
+  operator's problem to the client as a bug report about their valid request.
+  Failures from loading the server's parameters now carry their provenance from
+  where they happen, and the classifier reads that rather than guessing. The
+  kind test that remains covers the only other filesystem the prover touches on
+  its own account, the spill directory. `WorkError::ServerEnvironment` also
+  renders its message, so the 500 body names the operation and the path as the
+  README always said it did; every other 500 stays the bare `internal error`,
+  because that message is about the prover's internals.
+
+## Ledger 9.1.0.0-rc.4
+
+- fix: dust registration accounting moved to block time, rather than declared
+  transaction time.
+
 ## Ledger 9.1.0.0-rc.3
 
 - feat: replace `parallelism_factor` with free floating factors for validation-cost, guaranteed application cost, and fallible application cost, part of the parameters. These apply only to the compute cost, and the `validation_cost` function now has the pre-applied, unlike before.
