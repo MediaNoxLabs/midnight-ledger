@@ -19,7 +19,7 @@ use rand::rngs::OsRng;
 use serialize::{peek_tag, tagged_deserialize};
 use std::io::Cursor;
 use transient_crypto::proofs::{
-    ParamsProver, ParamsProverProvider, Proof, ProofPreimage, ProvingError, Zkir,
+    MappedParams, ParamsProver, ParamsProverProvider, Proof, ProofPreimage, ProvingError, Zkir,
 };
 use zkir as zkir_v2;
 
@@ -174,7 +174,18 @@ pub(crate) async fn prove(
     ir_source: &[u8],
     resolver: &Resolver,
 ) -> Result<(Proof, Vec<Option<usize>>), ProveError> {
-    prove_with_params(ppi, ir_source, resolver, &*crate::endpoints::PUBLIC_PARAMS).await
+    // Mapping is opt-in: without the operator's promise this takes the eager
+    // path, which owns its memory and cannot be invalidated by anything on
+    // disk. See `endpoints::trusted_params_dir`.
+    match crate::endpoints::trusted_params_dir() {
+        Some(dir) => {
+            let params = MappedParams::new(crate::endpoints::PUBLIC_PARAMS.clone(), dir);
+            prove_with_params(ppi, ir_source, resolver, &params).await
+        }
+        None => {
+            prove_with_params(ppi, ir_source, resolver, &*crate::endpoints::PUBLIC_PARAMS).await
+        }
+    }
 }
 
 /// [`prove`], with the server's parameter provider passed in rather than read

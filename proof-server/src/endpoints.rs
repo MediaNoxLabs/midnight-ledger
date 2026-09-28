@@ -37,7 +37,9 @@ use storage::db::InMemoryDB;
 use tracing::{debug, info, warn};
 use transient_crypto::commitment::PedersenRandomness;
 use transient_crypto::curve::Fr;
-use transient_crypto::proofs::{KeyLocation, ProvingKeyMaterial, Resolver as ResolverT, WrappedIr};
+use transient_crypto::proofs::{
+    KeyLocation, ProvingKeyMaterial, Resolver as ResolverT, TrustedParamsDir, WrappedIr,
+};
 
 use zkir as zkir_v2;
 use zswap::prove::ZswapResolver;
@@ -54,6 +56,46 @@ lazy_static! {
         )
         .expect("data provider initialization failed")
     );
+}
+
+/// The operator's promise that this server's parameter cache is its own.
+///
+/// Returns `None` unless `MIDNIGHT_TRUST_PARAMS_DIR` is set, and `None` is the
+/// sound default: parameters then load eagerly into memory the process owns,
+/// which costs time and RAM and nothing else.
+///
+/// Set it and the server maps published `bls_midnight_2pN.mmap` companions
+/// zero-copy, which is a large win at k=20 — and which is only safe while
+/// nothing else writes to that directory for the life of the process.
+/// Mapped memory whose file changes underneath it is undefined behaviour, not
+/// a stale read.
+///
+/// This is the right place for that decision and the wrong place to infer it.
+/// The directory comes from `MIDNIGHT_PP` or `XDG_CACHE_HOME`, so no library
+/// underneath can know whether it is a private cache or a shared volume; the
+/// operator who deployed this server can. Every layer below now takes the
+/// promise as a value rather than asserting it.
+pub(crate) fn trusted_params_dir() -> Option<TrustedParamsDir> {
+    if !env_flag("MIDNIGHT_TRUST_PARAMS_DIR") {
+        return None;
+    }
+    let dir = PUBLIC_PARAMS.0.dir.clone();
+    warn!(
+        "MIDNIGHT_TRUST_PARAMS_DIR is set: mapping parameter companions from {}. \
+         Nothing else may write to that directory while this server runs.",
+        dir.display()
+    );
+    // SAFETY: not ours to establish, and we do not pretend to. The operator
+    // asserted it by setting the variable, having been told in the README and
+    // in the log line above exactly what they are asserting. Unset is the
+    // default and is sound.
+    Some(unsafe { TrustedParamsDir::new(dir) })
+}
+
+fn env_flag(name: &str) -> bool {
+    std::env::var(name)
+        .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "yes" | "on"))
+        .unwrap_or(false)
 }
 
 async fn payload_to_bytes(mut payload: Payload) -> Result<Bytes, Error> {

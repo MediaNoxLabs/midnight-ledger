@@ -18,6 +18,22 @@ with `zswap` being tracked in [Changelog Zswap](./CHANGELOG_zswap.md).
 - feat: `IrMinorVersion::V1` marks an `IrSource` carrying `verify_proof_vks`, and is now the default. `IrSource`'s `Serializable` is hand-written and branches on it, so `V0` blobs keep their exact byte layout and still load; serializing a `V0` that carries key material is an error rather than a silent drop.
 - fix: `zkir-wasm`'s `prove` and `check` converted a preimage for the v1 pipeline by re-deserializing the raw request bytes as `transient_crypto_old::proofs::ProofPreimage`.
 
+- fix(transient-crypto)!: memory-mapped parameters are opt-in, and the default
+  owns its memory. `CompanionCache::from_trusted_dir` was made `unsafe` to
+  express that mapping a companion requires a directory nothing else writes to
+  — but safe `MidnightDataProvider::get_params` then called it on a directory
+  named by `MIDNIGHT_PP` or `XDG_CACHE_HOME`, so safe code plus an environment
+  variable still produced mapped memory whose soundness nobody had established.
+  A `SAFETY` comment that restates an obligation does not discharge it.
+  The obligation is now a value: `TrustedParamsDir`, whose only constructor is
+  `unsafe`, made once by whoever chose the directory. `CompanionCache::from_trusted_dir`
+  takes that value and is safe again, and mapping is reachable only by wrapping
+  a provider in `MappedParams`. An unwrapped provider never maps a file,
+  whatever is on disk and whatever the environment says; on a miss the wrapper
+  falls through, so the difference is performance, never behaviour. In the
+  proof server the promise is the operator's, via `MIDNIGHT_TRUST_PARAMS_DIR`,
+  unset by default.
+
 - fix(proof-server): classify prover failures by the provenance of the input
   that failed, not by its `io::ErrorKind`. A corrupt or incompatible companion
   in the server's *own* parameter cache fails with `InvalidData`, exactly like
