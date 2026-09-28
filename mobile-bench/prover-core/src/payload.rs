@@ -68,7 +68,10 @@ pub fn verify_response(verifier_key: &[u8], response: &[u8], binding_input: Fr) 
         .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize verifier key: {e}")))?;
     let versioned: ProofVersioned = tagged_deserialize(response)
         .map_err(|e| Error::Anyhow(anyhow::anyhow!("deserialize proof: {e}")))?;
-    let ProofVersioned::V2(proof) = versioned else {
+    // ledger-10 splits these by proof format: `V2` / `V3` carry the
+    // pre-accumulator `proof[v5]` layout, `V4` carries `proof[v6]`. The
+    // prover on this line produces the latter.
+    let ProofVersioned::V4(proof) = versioned else {
         return Err(Error::Anyhow(anyhow::anyhow!(
             "unexpected ProofVersioned variant"
         )));

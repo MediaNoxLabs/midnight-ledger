@@ -57,5 +57,8 @@ pub(crate) fn make_preimage(
         binding_input,
         communications_commitment: None,
         key_location: KeyLocation(std::borrow::Cow::Borrowed(key_label)),
+        // ledger-10 only: one witness per `inner_proof` instruction. These
+        // example circuits carry no recursion, so there are none to witness.
+        inner_proofs: vec![],
     }
 }

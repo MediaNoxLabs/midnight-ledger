@@ -929,7 +929,11 @@ pub async fn prove_tx_bytes(request_bytes: &[u8], cache_dir: Option<PathBuf>) ->
                 .await
                 .map_err(|e| Error::Anyhow(anyhow::anyhow!("prove: {e}")))?;
             void_local_unused(&ir);
-            ProofVersioned::V2(proof)
+            // ledger-10 splits the variants by proof format: `V2` and `V3`
+            // hold the pre-accumulator `proof[v5]` layout through
+            // `transient_crypto_old`, and `V4` carries `proof[v6]`. This path
+            // proves with the current zkir, so its result is a v6 proof.
+            ProofVersioned::V4(proof)
         }
         // Footgun mirror: proof-server's match is non-exhaustive
         // for forward-compatibility.
@@ -1144,6 +1148,11 @@ fn make_preimage() -> ProofPreimage {
         binding_input: Fr::from(42u64),
         communications_commitment: None,
         key_location: KeyLocation(std::borrow::Cow::Borrowed("contract-benchmark")),
+        // ledger-10 only: one witness per `inner_proof` instruction. The
+        // benchmark circuits carry no recursion, so there are none. An empty
+        // vec is the honest value here, not a placeholder — a circuit with no
+        // `inner_proof` instruction has nothing to witness.
+        inner_proofs: vec![],
     }
 }
 
