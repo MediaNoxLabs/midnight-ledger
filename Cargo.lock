@@ -2621,7 +2621,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "serde_core",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3262,7 +3262,7 @@ dependencies = [
 [[package]]
 name = "midnight-proofs"
 version = "0.7.3"
-source = "git+https://github.com/MediaNoxLabs/midnight-zk?rev=083c82824dc5979fd7d509229e6f6b362d5b1ebf#083c82824dc5979fd7d509229e6f6b362d5b1ebf"
+source = "git+https://github.com/MediaNoxLabs/midnight-zk?rev=3c5a61a8fefdd9c4ca94a5d1e76e53a117312bb9#3c5a61a8fefdd9c4ca94a5d1e76e53a117312bb9"
 dependencies = [
  "blake2b_simd",
  "ff",
