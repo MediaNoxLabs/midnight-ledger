@@ -6,6 +6,19 @@ with `zswap` being tracked in [Changelog Zswap](./CHANGELOG_zswap.md).
 
 ## Unreleased
 
+- fix(proof-server): classify prover failures by the provenance of the input
+  that failed, not by its `io::ErrorKind`. A corrupt or incompatible companion
+  in the server's *own* parameter cache fails with `InvalidData`, exactly like
+  a client sending malformed key bytes, and was answered with 400 — sending the
+  operator's problem to the client as a bug report about their valid request.
+  Failures from loading the server's parameters now carry their provenance from
+  where they happen, and the classifier reads that rather than guessing. The
+  kind test that remains covers the only other filesystem the prover touches on
+  its own account, the spill directory. `WorkError::ServerEnvironment` also
+  renders its message, so the 500 body names the operation and the path as the
+  README always said it did; every other 500 stays the bare `internal error`,
+  because that message is about the prover's internals.
+
 - fix(proof-server): bound ingress, not only proving. A `/prove`, `/prove-tx`
   or `/check` request **takes its queue slot before its body is read** and
   gets it back automatically if the request never becomes work, so the memory

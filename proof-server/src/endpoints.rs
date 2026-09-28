@@ -482,9 +482,10 @@ pub(crate) async fn prove(
                                 versioned_ir::ProveError::ServerEnvironment(msg) => {
                                     // The request was fine; this server is not.
                                     // Say so in the log, where the operator
-                                    // looks, and answer 500, not 400.
+                                    // looks, and in the 500 body, which is what
+                                    // they actually have in hand.
                                     warn!("proving failed on the server's environment: {msg}");
-                                    WorkError::InternalError(msg)
+                                    WorkError::ServerEnvironment(msg)
                                 }
                             })?
                             .0;
