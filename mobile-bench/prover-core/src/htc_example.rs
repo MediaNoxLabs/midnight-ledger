@@ -41,7 +41,7 @@ impl ProverCore {
         let ir = IrSource::load(HTC_IR_JSON.as_bytes())
             .map_err(|e| Error::Anyhow(anyhow::anyhow!("load ir: {e}")))?;
         let (pk, vk) = ir
-            .keygen(&self.params.zswap.0)
+            .keygen(&*self.params.mapped)
             .await
             .map_err(|e| Error::Anyhow(anyhow::anyhow!("keygen: {e}")))?;
         Ok(ExampleResolver { pk, vk, ir })
@@ -58,7 +58,7 @@ impl ProverCore {
 
         let started = Instant::now();
         let (proof, _pi_skips) = preimage
-            .prove::<IrSource>(&mut rng, &self.params.zswap.0, &resolver)
+            .prove::<IrSource>(&mut rng, &*self.params.mapped, &resolver)
             .await
             .map_err(|e| Error::Anyhow(anyhow::anyhow!("prove: {e}")))?;
         let elapsed = started.elapsed();
