@@ -1638,7 +1638,8 @@ mod companion_cache_tests {
         let barrier = Arc::new(Barrier::new(8));
         let handles: Vec<_> = (0..8)
             .map(|_| {
-                let cache = CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
+                let cache =
+                    CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
                 let source = source.clone();
                 let builds = Arc::clone(&builds);
                 let barrier = Arc::clone(&barrier);
@@ -1710,7 +1711,8 @@ mod companion_cache_tests {
         let expected = digest(&source);
         let barrier = Arc::new(Barrier::new(5));
         let builder = {
-            let cache = CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
+            let cache =
+                CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
             let barrier = Arc::clone(&barrier);
             std::thread::spawn(move || {
                 barrier.wait();
@@ -1719,7 +1721,8 @@ mod companion_cache_tests {
         };
         let readers: Vec<_> = (0..4)
             .map(|_| {
-                let cache = CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
+                let cache =
+                    CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
                 let barrier = Arc::clone(&barrier);
                 std::thread::spawn(move || {
                     barrier.wait();

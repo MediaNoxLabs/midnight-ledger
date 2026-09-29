@@ -64,6 +64,70 @@ mod common {
         start_server_impl(num_workers, job_limit, false)
     }
 
+    /// A server whose ingress bounds are set explicitly, so an oversize or a
+    /// slow body can be exercised without a 512 MiB request or a two-minute
+    /// wait.
+    pub fn start_server_with_ingress_config(
+        num_workers: usize,
+        job_limit: usize,
+        max_request_bytes: usize,
+        read_timeout: Duration,
+    ) -> TestServer {
+        init_logger();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            rt::System::new().block_on(async move {
+                let pool = WorkerPool::new(num_workers, job_limit, 600.0);
+                let (srv, bound_port) = midnight_proof_server::server_with_ingress(
+                    0,
+                    false,
+                    pool,
+                    midnight_proof_server::endpoints::IngressConfig {
+                        max_request_bytes,
+                        read_timeout,
+                    },
+                )
+                .expect("Failed to start server");
+                tx.send((srv.handle(), bound_port))
+                    .expect("Failed to send server handle");
+                srv.await.expect("Server error");
+            });
+        });
+        let (handle, port) = rx.recv().expect("Failed to receive server handle");
+        TestServer { handle, port }
+    }
+
+    /// A server whose ingress bound is `max_request_bytes`, so an oversize
+    /// body can be exercised without a 512 MiB request.
+    pub fn start_server_with_ingress(
+        num_workers: usize,
+        job_limit: usize,
+        max_request_bytes: usize,
+    ) -> TestServer {
+        init_logger();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            rt::System::new().block_on(async move {
+                let pool = WorkerPool::new(num_workers, job_limit, 600.0);
+                let (srv, bound_port) = midnight_proof_server::server_with_ingress(
+                    0,
+                    false,
+                    pool,
+                    midnight_proof_server::endpoints::IngressConfig {
+                        max_request_bytes,
+                        ..Default::default()
+                    },
+                )
+                .expect("Failed to start server");
+                tx.send((srv.handle(), bound_port))
+                    .expect("Failed to send server handle");
+                srv.await.expect("Server error");
+            });
+        });
+        let (handle, port) = rx.recv().expect("Failed to receive server handle");
+        TestServer { handle, port }
+    }
+
     pub fn start_server_with_fetch_params(
         num_workers: usize,
         job_limit: usize,
@@ -944,6 +1008,180 @@ mod fetch_params_endpoint {
 
         let text = response.text().await.expect("Failed to get response text");
         assert_eq!(text, "success");
+
+        stop_server(server).await;
+    }
+
+    // ---- ingress admission (MLG-007) ------------------------------------
+    //
+    // `job_capacity` bounded proving, not ingress: the body was read,
+    // deserialised and its proving-key material deep-copied before admission
+    // was checked, so N in-flight requests each held a k=20 body — hundreds of
+    // MB — while the queue that was meant to bound the server sat full.
+
+    #[tokio::test]
+    async fn refuses_a_body_larger_than_the_ingress_bound() {
+        let server = start_server_with_ingress(DEFAULT_NUM_WORKERS, DEFAULT_JOB_LIMIT, 1024);
+
+        let response = HTTP_CLIENT
+            .post(format!("{}/prove", server.base_url()))
+            .body(vec![0u8; 4096])
+            .send()
+            .await
+            .expect("Request failed");
+
+        assert_eq!(
+            response.status(),
+            413,
+            "an oversize body must be refused, not buffered"
+        );
+        let text = response.text().await.expect("response text");
+        assert!(
+            text.contains("limit"),
+            "the refusal should say what the limit was: {text}"
+        );
+
+        stop_server(server).await;
+    }
+
+    #[tokio::test]
+    async fn refuses_an_oversize_body_declared_in_content_length() {
+        // The declared length is checked before a byte is read, so the refusal
+        // does not depend on the client actually sending the bytes.
+        let server = start_server_with_ingress(DEFAULT_NUM_WORKERS, DEFAULT_JOB_LIMIT, 1024);
+
+        let response = HTTP_CLIENT
+            .post(format!("{}/prove", server.base_url()))
+            .header("Content-Length", "1048576")
+            .body(vec![0u8; 1024 * 1024])
+            .send()
+            .await
+            .expect("Request failed");
+
+        assert_eq!(response.status(), 413);
+
+        stop_server(server).await;
+    }
+
+    #[tokio::test]
+    async fn a_body_within_the_bound_is_still_read() {
+        // The bound must not swallow ordinary requests: this one is refused
+        // for its content (400, not a valid payload), which proves the body
+        // reached the handler.
+        let server = start_server_with_ingress(DEFAULT_NUM_WORKERS, DEFAULT_JOB_LIMIT, 4096);
+
+        let response = HTTP_CLIENT
+            .post(format!("{}/prove", server.base_url()))
+            .body(vec![0u8; 1024])
+            .send()
+            .await
+            .expect("Request failed");
+
+        assert_eq!(response.status(), 400);
+
+        stop_server(server).await;
+    }
+
+    #[tokio::test]
+    async fn refuses_a_body_that_arrives_too_slowly() {
+        // The byte bound alone does not stop a client that sends its body one
+        // slow byte at a time: it holds the buffer — and, now, a reserved
+        // queue slot — for as long as it likes. Actix's `client_request_timeout`
+        // covers the request *head*, not the `payload.next()` loop, so the
+        // body drain carries its own deadline.
+        //
+        // Driven over a raw socket: the headers promise 4096 bytes, one byte
+        // is sent, and then nothing. A client library would either buffer the
+        // whole body first or need a streaming feature this crate does not
+        // enable.
+        use std::time::Duration;
+
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let server = start_server_with_ingress_config(
+            DEFAULT_NUM_WORKERS,
+            DEFAULT_JOB_LIMIT,
+            1024 * 1024,
+            Duration::from_secs(2),
+        );
+
+        let mut socket = tokio::net::TcpStream::connect(("127.0.0.1", server.port))
+            .await
+            .expect("connect to the test server");
+        socket
+            .write_all(
+                b"POST /prove HTTP/1.1\r\n\
+                  Host: localhost\r\n\
+                  Content-Length: 4096\r\n\
+                  \r\n\
+                  \x00",
+            )
+            .await
+            .expect("send the head and one byte");
+        socket.flush().await.expect("flush");
+
+        // Then stall. The server must answer — and close — on its own deadline.
+        let mut response = Vec::new();
+        let read =
+            tokio::time::timeout(Duration::from_secs(20), socket.read_to_end(&mut response)).await;
+
+        assert!(
+            read.is_ok(),
+            "the server held a stalled body past its own read deadline"
+        );
+        let text = String::from_utf8_lossy(&response);
+        assert!(
+            text.contains("408") || text.is_empty(),
+            "expected the server to time the body out; got: {}",
+            &text[..text.len().min(200)]
+        );
+
+        stop_server(server).await;
+    }
+
+    #[tokio::test]
+    async fn a_reserved_slot_is_returned_when_the_request_never_becomes_work() {
+        // The reservation is taken before the body is read. If it were not
+        // given back on a failed read or parse, a handful of bad requests
+        // would fill the queue permanently and every later request would get
+        // 429. `job_limit` here is 1, so the second request proves the first
+        // released its slot.
+        let server = start_server_with_ingress(DEFAULT_NUM_WORKERS, 1, 4096);
+
+        for attempt in 0..3 {
+            let response = HTTP_CLIENT
+                .post(format!("{}/prove", server.base_url()))
+                .body(vec![0u8; 64])
+                .send()
+                .await
+                .expect("Request failed");
+            assert_eq!(
+                response.status(),
+                400,
+                "attempt {attempt} should fail on its content, not on admission"
+            );
+        }
+
+        // And an oversize body, which fails before the parse, must release too.
+        let oversize = HTTP_CLIENT
+            .post(format!("{}/prove", server.base_url()))
+            .body(vec![0u8; 8192])
+            .send()
+            .await
+            .expect("Request failed");
+        assert_eq!(oversize.status(), 413);
+
+        let after = HTTP_CLIENT
+            .post(format!("{}/prove", server.base_url()))
+            .body(vec![0u8; 64])
+            .send()
+            .await
+            .expect("Request failed");
+        assert_eq!(
+            after.status(),
+            400,
+            "the oversize request must have released its slot"
+        );
 
         stop_server(server).await;
     }
