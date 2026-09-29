@@ -18,6 +18,40 @@ with `zswap` being tracked in [Changelog Zswap](./CHANGELOG_zswap.md).
 - feat: `IrMinorVersion::V1` marks an `IrSource` carrying `verify_proof_vks`, and is now the default. `IrSource`'s `Serializable` is hand-written and branches on it, so `V0` blobs keep their exact byte layout and still load; serializing a `V0` that carries key material is an error rather than a silent drop.
 - fix: `zkir-wasm`'s `prove` and `check` converted a preimage for the v1 pipeline by re-deserializing the raw request bytes as `transient_crypto_old::proofs::ProofPreimage`.
 
+- fix(transient-crypto)!: memory-mapped parameters are opt-in, and the default
+  owns its memory. `CompanionCache::from_trusted_dir` was made `unsafe` to
+  express that mapping a companion requires a directory nothing else writes to
+  — but safe `MidnightDataProvider::get_params` then called it on a directory
+  named by `MIDNIGHT_PP` or `XDG_CACHE_HOME`, so safe code plus an environment
+  variable still produced mapped memory whose soundness nobody had established.
+  A `SAFETY` comment that restates an obligation does not discharge it.
+  The obligation is now a value: `TrustedParamsDir`, whose only constructor is
+  `unsafe`, made once by whoever chose the directory. `CompanionCache::from_trusted_dir`
+  takes that value and is safe again, and mapping is reachable only by wrapping
+  a provider in `MappedParams`. An unwrapped provider never maps a file,
+  whatever is on disk and whatever the environment says; on a miss the wrapper
+  falls through, so the difference is performance, never behaviour. In the
+  proof server the promise is the operator's, via `MIDNIGHT_TRUST_PARAMS_DIR`,
+  unset by default.
+
+- fix(proof-server): classify prover failures by the provenance of the input
+  that failed, not by its `io::ErrorKind`. A corrupt or incompatible companion
+  in the server's *own* parameter cache fails with `InvalidData`, exactly like
+  a client sending malformed key bytes, and was answered with 400 — sending the
+  operator's problem to the client as a bug report about their valid request.
+  Failures from loading the server's parameters now carry their provenance from
+  where they happen, and the classifier reads that rather than guessing. The
+  kind test that remains covers the only other filesystem the prover touches on
+  its own account, the spill directory. `WorkError::ServerEnvironment` also
+  renders its message, so the 500 body names the operation and the path as the
+  README always said it did; every other 500 stays the bare `internal error`,
+  because that message is about the prover's internals.
+
+## Ledger 9.1.0.0-rc.4
+
+- fix: dust registration accounting moved to block time, rather than declared
+  transaction time.
+
 ## Ledger 9.1.0.0-rc.3
 
 - feat: replace `parallelism_factor` with free floating factors for validation-cost, guaranteed application cost, and fallible application cost, part of the parameters. These apply only to the compute cost, and the `validation_cost` function now has the pre-applied, unlike before.

@@ -1,0 +1,194 @@
+[2m2026-09-15T06:25:55.727392Z[0m [32m INFO[0m [2mmidnight_proof_server[0m[2m:[0m Ensuring zswap key material is available...
+[2m2026-09-15T06:25:55.727872Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing public parameters for k=10. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:25:55.790162Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing public parameters for k=11. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:25:55.793424Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing public parameters for k=12. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:25:55.796242Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing public parameters for k=13. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:25:55.798898Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing public parameters for k=14. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:25:55.801822Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing public parameters for k=15. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:25:55.804678Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing zero-knowledge proving key for Zswap inputs. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:25:55.807330Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing zero-knowledge proving key for Zswap outputs. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:25:55.810170Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing zero-knowledge proving key for Zswap signing operations. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:25:55.813322Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing zero-knowledge proving key for Dust spends. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:25:58.640267Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=11 - finished.
+[2m2026-09-15T06:25:58.640304Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=11 - verified correct.
+[2m2026-09-15T06:26:00.341718Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=10 - finished.
+[2m2026-09-15T06:26:00.341781Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=10 - verified correct.
+[2m2026-09-15T06:26:00.613855Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=12 - finished.
+[2m2026-09-15T06:26:00.613909Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=12 - verified correct.
+[2m2026-09-15T06:26:02.012063Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'bls_midnight_2p13' - 634910 / 1573252 bytes downloaded
+[2m2026-09-15T06:26:02.032100Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/spend.prover' - 1681575 / 11020001 bytes downloaded
+[2m2026-09-15T06:26:02.175891Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'bls_midnight_2p14' - 1748118 / 3146116 bytes downloaded
+[2m2026-09-15T06:26:02.239633Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'dust/10/spend.prover' - 726796 / 2175878 bytes downloaded
+[2m2026-09-15T06:26:02.260923Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'bls_midnight_2p15' - 1536544 / 6291844 bytes downloaded
+[2m2026-09-15T06:26:02.284983Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/sign.prover' - 640500 / 2814823 bytes downloaded
+[2m2026-09-15T06:26:02.330814Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/output.prover' - 781856 / 5730182 bytes downloaded
+[2m2026-09-15T06:26:04.556263Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=14 - finished.
+[2m2026-09-15T06:26:04.556369Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=14 - verified correct.
+[2m2026-09-15T06:26:06.072982Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=13 - finished.
+[2m2026-09-15T06:26:06.073001Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=13 - verified correct.
+[2m2026-09-15T06:26:07.235160Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/spend.prover' - 4335783 / 11020001 bytes downloaded
+[2m2026-09-15T06:26:07.272159Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'bls_midnight_2p15' - 3918455 / 6291844 bytes downloaded
+[2m2026-09-15T06:26:07.293832Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'dust/10/spend.prover' - 1710860 / 2175878 bytes downloaded
+[2m2026-09-15T06:26:07.332984Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/output.prover' - 2305568 / 5730182 bytes downloaded
+[2m2026-09-15T06:26:07.498444Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/sign.prover' - 2714794 / 2814823 bytes downloaded
+[2m2026-09-15T06:26:07.608856Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge proving key for Zswap signing operations - finished.
+[2m2026-09-15T06:26:07.608886Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge proving key for Zswap signing operations - verified correct.
+[2m2026-09-15T06:26:07.614870Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing zero-knowledge verifying key for Zswap signing operations. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:08.700831Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge verifying key for Zswap signing operations - finished.
+[2m2026-09-15T06:26:08.700858Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge verifying key for Zswap signing operations - verified correct.
+[2m2026-09-15T06:26:08.703003Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing ZKIR source for Zswap signing operations. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:09.512150Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge proving key for Dust spends - finished.
+[2m2026-09-15T06:26:09.512173Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge proving key for Dust spends - verified correct.
+[2m2026-09-15T06:26:09.516712Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing zero-knowledge verifying key for Dust spends. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:09.716448Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching ZKIR source for Zswap signing operations - finished.
+[2m2026-09-15T06:26:09.716503Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching ZKIR source for Zswap signing operations - verified correct.
+[2m2026-09-15T06:26:10.680898Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge verifying key for Dust spends - finished.
+[2m2026-09-15T06:26:10.680928Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge verifying key for Dust spends - verified correct.
+[2m2026-09-15T06:26:10.682866Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing ZKIR source for Dust spends. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:11.764947Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching ZKIR source for Dust spends - finished.
+[2m2026-09-15T06:26:11.764977Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching ZKIR source for Dust spends - verified correct.
+[2m2026-09-15T06:26:11.791207Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=15 - finished.
+[2m2026-09-15T06:26:11.791244Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching public parameters for k=15 - verified correct.
+[2m2026-09-15T06:26:12.431526Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/spend.prover' - 9356853 / 11020001 bytes downloaded
+[2m2026-09-15T06:26:12.444420Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching 'zswap/10/output.prover' - 4664864 / 5730182 bytes downloaded
+[2m2026-09-15T06:26:13.726215Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge proving key for Zswap inputs - finished.
+[2m2026-09-15T06:26:13.726256Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge proving key for Zswap inputs - verified correct.
+[2m2026-09-15T06:26:13.740206Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing zero-knowledge verifying key for Zswap inputs. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:14.039067Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge proving key for Zswap outputs - finished.
+[2m2026-09-15T06:26:14.039097Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge proving key for Zswap outputs - verified correct.
+[2m2026-09-15T06:26:14.048077Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing zero-knowledge verifying key for Zswap outputs. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:14.754820Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge verifying key for Zswap inputs - finished.
+[2m2026-09-15T06:26:14.754850Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge verifying key for Zswap inputs - verified correct.
+[2m2026-09-15T06:26:14.756610Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing ZKIR source for Zswap inputs. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:14.956960Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge verifying key for Zswap outputs - finished.
+[2m2026-09-15T06:26:14.956993Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching zero-knowledge verifying key for Zswap outputs - verified correct.
+[2m2026-09-15T06:26:14.958756Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Missing ZKIR source for Zswap outputs. Attempting to download from the host https://srs.midnight.network/ - this is not a trusted service, the data will be verified.
+[2m2026-09-15T06:26:15.638367Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching ZKIR source for Zswap inputs - finished.
+[2m2026-09-15T06:26:15.638397Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching ZKIR source for Zswap inputs - verified correct.
+[2m2026-09-15T06:26:15.884421Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching ZKIR source for Zswap outputs - finished.
+[2m2026-09-15T06:26:15.884458Z[0m [32m INFO[0m [2mmidnight_base_crypto::data_provider[0m[2m:[0m Fetching ZKIR source for Zswap outputs - verified correct.
+[2m2026-09-15T06:26:15.888703Z[0m [32m INFO[0m [2mactix_server::builder[0m[2m:[0m starting 12 workers
+[2m2026-09-15T06:26:15.888734Z[0m [32m INFO[0m [2mactix_server::server[0m[2m:[0m Actix runtime found; starting in Actix runtime
+[2m2026-09-15T06:26:15.888739Z[0m [32m INFO[0m [2mactix_server::server[0m[2m:[0m starting service: "actix-web-service-0.0.0.0:6311", workers: 12, listening on: 0.0.0.0:6311
+[2m2026-09-15T06:26:15.932124Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 GET /health HTTP/1.1; took 0.000112s
+[2m2026-09-15T06:26:15.934997Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 GET /ready HTTP/1.1; took 0.000083s
+[2m2026-09-15T06:26:15.937977Z[0m [32m INFO[0m [2mmidnight_proof_server::endpoints[0m[2m:[0m Starting to process request for /prove...
+[2m2026-09-15T06:26:16.210134Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.start" [3mrss_mb[0m[2m=[0m154 [3mhwm_mb[0m[2m=[0m154
+[2m2026-09-15T06:26:16.210160Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.start" [3mrss_mb[0m[2m=[0m154 [3mhwm_mb[0m[2m=[0m154
+[2m2026-09-15T06:26:16.215491Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.end" [3mrss_mb[0m[2m=[0m155 [3mhwm_mb[0m[2m=[0m155
+[2m2026-09-15T06:26:16.215551Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.start" [3mrss_mb[0m[2m=[0m155 [3mhwm_mb[0m[2m=[0m155
+[2m2026-09-15T06:26:16.221572Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.end" [3mrss_mb[0m[2m=[0m155 [3mhwm_mb[0m[2m=[0m155
+[2m2026-09-15T06:26:16.221628Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.start" [3mrss_mb[0m[2m=[0m155 [3mhwm_mb[0m[2m=[0m155
+[2m2026-09-15T06:26:16.264630Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.end" [3mrss_mb[0m[2m=[0m156 [3mhwm_mb[0m[2m=[0m156
+[2m2026-09-15T06:26:16.264667Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.start" [3mrss_mb[0m[2m=[0m156 [3mhwm_mb[0m[2m=[0m156
+[2m2026-09-15T06:26:16.335144Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.end" [3mrss_mb[0m[2m=[0m165 [3mhwm_mb[0m[2m=[0m165
+[2m2026-09-15T06:26:16.335170Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.start" [3mrss_mb[0m[2m=[0m165 [3mhwm_mb[0m[2m=[0m165
+[2m2026-09-15T06:26:16.386046Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.end" [3mrss_mb[0m[2m=[0m165 [3mhwm_mb[0m[2m=[0m165
+[2m2026-09-15T06:26:16.413820Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.end" [3mrss_mb[0m[2m=[0m166 [3mhwm_mb[0m[2m=[0m166
+[2m2026-09-15T06:26:16.413846Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.start" [3mrss_mb[0m[2m=[0m166 [3mhwm_mb[0m[2m=[0m166
+[2m2026-09-15T06:26:16.413853Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.start" [3mrss_mb[0m[2m=[0m166 [3mhwm_mb[0m[2m=[0m166
+[2m2026-09-15T06:26:16.549300Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.drop_cosets.end" [3mrss_mb[0m[2m=[0m180 [3mhwm_mb[0m[2m=[0m180
+[2m2026-09-15T06:26:16.549329Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.end" [3mrss_mb[0m[2m=[0m180 [3mhwm_mb[0m[2m=[0m180
+[2m2026-09-15T06:26:16.549337Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.start" [3mrss_mb[0m[2m=[0m180 [3mhwm_mb[0m[2m=[0m180
+[2m2026-09-15T06:26:16.632235Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.end" [3mrss_mb[0m[2m=[0m180 [3mhwm_mb[0m[2m=[0m180
+[2m2026-09-15T06:26:16.659017Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_queries.start" [3mrss_mb[0m[2m=[0m180 [3mhwm_mb[0m[2m=[0m180
+[2m2026-09-15T06:26:16.659120Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.start" [3mrss_mb[0m[2m=[0m180 [3mhwm_mb[0m[2m=[0m180
+[2m2026-09-15T06:26:16.745306Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.end" [3mrss_mb[0m[2m=[0m180 [3mhwm_mb[0m[2m=[0m180
+[2m2026-09-15T06:26:16.746414Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.end" [3mrss_mb[0m[2m=[0m156 [3mhwm_mb[0m[2m=[0m179
+[2m2026-09-15T06:26:16.761313Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 POST /prove HTTP/1.1; took 0.823365s
+[2m2026-09-15T06:26:16.795972Z[0m [32m INFO[0m [2mmidnight_proof_server::endpoints[0m[2m:[0m Starting to process request for /prove...
+[2m2026-09-15T06:26:16.865201Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.start" [3mrss_mb[0m[2m=[0m174 [3mhwm_mb[0m[2m=[0m179
+[2m2026-09-15T06:26:16.865235Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.start" [3mrss_mb[0m[2m=[0m174 [3mhwm_mb[0m[2m=[0m179
+[2m2026-09-15T06:26:16.870685Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.end" [3mrss_mb[0m[2m=[0m174 [3mhwm_mb[0m[2m=[0m179
+[2m2026-09-15T06:26:16.870706Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.start" [3mrss_mb[0m[2m=[0m174 [3mhwm_mb[0m[2m=[0m179
+[2m2026-09-15T06:26:16.877085Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.end" [3mrss_mb[0m[2m=[0m180 [3mhwm_mb[0m[2m=[0m180
+[2m2026-09-15T06:26:16.877107Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.start" [3mrss_mb[0m[2m=[0m180 [3mhwm_mb[0m[2m=[0m180
+[2m2026-09-15T06:26:16.921231Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.end" [3mrss_mb[0m[2m=[0m185 [3mhwm_mb[0m[2m=[0m185
+[2m2026-09-15T06:26:16.921259Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.start" [3mrss_mb[0m[2m=[0m185 [3mhwm_mb[0m[2m=[0m185
+[2m2026-09-15T06:26:16.987073Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.end" [3mrss_mb[0m[2m=[0m193 [3mhwm_mb[0m[2m=[0m193
+[2m2026-09-15T06:26:16.987094Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.start" [3mrss_mb[0m[2m=[0m193 [3mhwm_mb[0m[2m=[0m193
+[2m2026-09-15T06:26:17.042456Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.end" [3mrss_mb[0m[2m=[0m194 [3mhwm_mb[0m[2m=[0m194
+[2m2026-09-15T06:26:17.065920Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.end" [3mrss_mb[0m[2m=[0m194 [3mhwm_mb[0m[2m=[0m194
+[2m2026-09-15T06:26:17.065939Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.start" [3mrss_mb[0m[2m=[0m194 [3mhwm_mb[0m[2m=[0m194
+[2m2026-09-15T06:26:17.065947Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.start" [3mrss_mb[0m[2m=[0m194 [3mhwm_mb[0m[2m=[0m194
+[2m2026-09-15T06:26:17.199956Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.drop_cosets.end" [3mrss_mb[0m[2m=[0m203 [3mhwm_mb[0m[2m=[0m203
+[2m2026-09-15T06:26:17.199987Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.end" [3mrss_mb[0m[2m=[0m203 [3mhwm_mb[0m[2m=[0m203
+[2m2026-09-15T06:26:17.199996Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.start" [3mrss_mb[0m[2m=[0m203 [3mhwm_mb[0m[2m=[0m203
+[2m2026-09-15T06:26:17.285772Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.end" [3mrss_mb[0m[2m=[0m203 [3mhwm_mb[0m[2m=[0m203
+[2m2026-09-15T06:26:17.313479Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_queries.start" [3mrss_mb[0m[2m=[0m203 [3mhwm_mb[0m[2m=[0m203
+[2m2026-09-15T06:26:17.313571Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.start" [3mrss_mb[0m[2m=[0m203 [3mhwm_mb[0m[2m=[0m203
+[2m2026-09-15T06:26:17.399990Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.end" [3mrss_mb[0m[2m=[0m203 [3mhwm_mb[0m[2m=[0m203
+[2m2026-09-15T06:26:17.401010Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.end" [3mrss_mb[0m[2m=[0m179 [3mhwm_mb[0m[2m=[0m202
+[2m2026-09-15T06:26:17.417172Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 POST /prove HTTP/1.1; took 0.621224s
+[2m2026-09-15T06:26:17.419958Z[0m [32m INFO[0m [2mmidnight_proof_server::endpoints[0m[2m:[0m Starting to process request for /prove...
+[2m2026-09-15T06:26:17.488318Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.start" [3mrss_mb[0m[2m=[0m195 [3mhwm_mb[0m[2m=[0m202
+[2m2026-09-15T06:26:17.488344Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.start" [3mrss_mb[0m[2m=[0m195 [3mhwm_mb[0m[2m=[0m202
+[2m2026-09-15T06:26:17.493828Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.end" [3mrss_mb[0m[2m=[0m195 [3mhwm_mb[0m[2m=[0m202
+[2m2026-09-15T06:26:17.493855Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.start" [3mrss_mb[0m[2m=[0m195 [3mhwm_mb[0m[2m=[0m202
+[2m2026-09-15T06:26:17.500262Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.end" [3mrss_mb[0m[2m=[0m202 [3mhwm_mb[0m[2m=[0m202
+[2m2026-09-15T06:26:17.500284Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.start" [3mrss_mb[0m[2m=[0m202 [3mhwm_mb[0m[2m=[0m202
+[2m2026-09-15T06:26:17.545337Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.end" [3mrss_mb[0m[2m=[0m207 [3mhwm_mb[0m[2m=[0m207
+[2m2026-09-15T06:26:17.545368Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.start" [3mrss_mb[0m[2m=[0m207 [3mhwm_mb[0m[2m=[0m207
+[2m2026-09-15T06:26:17.611552Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.end" [3mrss_mb[0m[2m=[0m214 [3mhwm_mb[0m[2m=[0m214
+[2m2026-09-15T06:26:17.611579Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.start" [3mrss_mb[0m[2m=[0m214 [3mhwm_mb[0m[2m=[0m214
+[2m2026-09-15T06:26:17.663717Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.end" [3mrss_mb[0m[2m=[0m215 [3mhwm_mb[0m[2m=[0m215
+[2m2026-09-15T06:26:17.686958Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.end" [3mrss_mb[0m[2m=[0m216 [3mhwm_mb[0m[2m=[0m216
+[2m2026-09-15T06:26:17.686981Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.start" [3mrss_mb[0m[2m=[0m216 [3mhwm_mb[0m[2m=[0m216
+[2m2026-09-15T06:26:17.686990Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.start" [3mrss_mb[0m[2m=[0m216 [3mhwm_mb[0m[2m=[0m216
+[2m2026-09-15T06:26:17.814740Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.drop_cosets.end" [3mrss_mb[0m[2m=[0m218 [3mhwm_mb[0m[2m=[0m218
+[2m2026-09-15T06:26:17.814769Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.end" [3mrss_mb[0m[2m=[0m218 [3mhwm_mb[0m[2m=[0m218
+[2m2026-09-15T06:26:17.814777Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.start" [3mrss_mb[0m[2m=[0m218 [3mhwm_mb[0m[2m=[0m218
+[2m2026-09-15T06:26:17.898085Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.end" [3mrss_mb[0m[2m=[0m218 [3mhwm_mb[0m[2m=[0m218
+[2m2026-09-15T06:26:17.925512Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_queries.start" [3mrss_mb[0m[2m=[0m218 [3mhwm_mb[0m[2m=[0m218
+[2m2026-09-15T06:26:17.925606Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.start" [3mrss_mb[0m[2m=[0m218 [3mhwm_mb[0m[2m=[0m218
+[2m2026-09-15T06:26:18.017099Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.end" [3mrss_mb[0m[2m=[0m218 [3mhwm_mb[0m[2m=[0m218
+[2m2026-09-15T06:26:18.018121Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.end" [3mrss_mb[0m[2m=[0m194 [3mhwm_mb[0m[2m=[0m217
+[2m2026-09-15T06:26:18.033622Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 POST /prove HTTP/1.1; took 0.613683s
+[2m2026-09-15T06:26:18.036136Z[0m [32m INFO[0m [2mmidnight_proof_server::endpoints[0m[2m:[0m Starting to process request for /prove...
+[2m2026-09-15T06:26:18.109286Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.start" [3mrss_mb[0m[2m=[0m211 [3mhwm_mb[0m[2m=[0m217
+[2m2026-09-15T06:26:18.109313Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.start" [3mrss_mb[0m[2m=[0m211 [3mhwm_mb[0m[2m=[0m217
+[2m2026-09-15T06:26:18.114515Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.end" [3mrss_mb[0m[2m=[0m211 [3mhwm_mb[0m[2m=[0m217
+[2m2026-09-15T06:26:18.114537Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.start" [3mrss_mb[0m[2m=[0m211 [3mhwm_mb[0m[2m=[0m217
+[2m2026-09-15T06:26:18.120981Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.end" [3mrss_mb[0m[2m=[0m217 [3mhwm_mb[0m[2m=[0m217
+[2m2026-09-15T06:26:18.121006Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.start" [3mrss_mb[0m[2m=[0m217 [3mhwm_mb[0m[2m=[0m217
+[2m2026-09-15T06:26:18.164859Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.end" [3mrss_mb[0m[2m=[0m222 [3mhwm_mb[0m[2m=[0m222
+[2m2026-09-15T06:26:18.164886Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.start" [3mrss_mb[0m[2m=[0m222 [3mhwm_mb[0m[2m=[0m222
+[2m2026-09-15T06:26:18.233273Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.end" [3mrss_mb[0m[2m=[0m230 [3mhwm_mb[0m[2m=[0m230
+[2m2026-09-15T06:26:18.233299Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.start" [3mrss_mb[0m[2m=[0m230 [3mhwm_mb[0m[2m=[0m230
+[2m2026-09-15T06:26:18.282342Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.end" [3mrss_mb[0m[2m=[0m230 [3mhwm_mb[0m[2m=[0m230
+[2m2026-09-15T06:26:18.305222Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.end" [3mrss_mb[0m[2m=[0m231 [3mhwm_mb[0m[2m=[0m231
+[2m2026-09-15T06:26:18.305248Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.start" [3mrss_mb[0m[2m=[0m231 [3mhwm_mb[0m[2m=[0m231
+[2m2026-09-15T06:26:18.305256Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.start" [3mrss_mb[0m[2m=[0m231 [3mhwm_mb[0m[2m=[0m231
+[2m2026-09-15T06:26:18.438094Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.drop_cosets.end" [3mrss_mb[0m[2m=[0m234 [3mhwm_mb[0m[2m=[0m234
+[2m2026-09-15T06:26:18.438125Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.end" [3mrss_mb[0m[2m=[0m234 [3mhwm_mb[0m[2m=[0m234
+[2m2026-09-15T06:26:18.438133Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.start" [3mrss_mb[0m[2m=[0m234 [3mhwm_mb[0m[2m=[0m234
+[2m2026-09-15T06:26:18.519732Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.end" [3mrss_mb[0m[2m=[0m234 [3mhwm_mb[0m[2m=[0m234
+[2m2026-09-15T06:26:18.547491Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_queries.start" [3mrss_mb[0m[2m=[0m234 [3mhwm_mb[0m[2m=[0m234
+[2m2026-09-15T06:26:18.547584Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.start" [3mrss_mb[0m[2m=[0m234 [3mhwm_mb[0m[2m=[0m234
+[2m2026-09-15T06:26:18.635099Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.end" [3mrss_mb[0m[2m=[0m234 [3mhwm_mb[0m[2m=[0m234
+[2m2026-09-15T06:26:18.636115Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.end" [3mrss_mb[0m[2m=[0m210 [3mhwm_mb[0m[2m=[0m233
+[2m2026-09-15T06:26:18.651518Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 POST /prove HTTP/1.1; took 0.615402s
+[2m2026-09-15T06:26:18.695458Z[0m [32m INFO[0m [2mmidnight_proof_server::endpoints[0m[2m:[0m Starting to process request for /prove...
+[2m2026-09-15T06:26:18.766122Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.start" [3mrss_mb[0m[2m=[0m226 [3mhwm_mb[0m[2m=[0m233
+[2m2026-09-15T06:26:18.766158Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.start" [3mrss_mb[0m[2m=[0m226 [3mhwm_mb[0m[2m=[0m233
+[2m2026-09-15T06:26:18.770386Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.compute_instances.end" [3mrss_mb[0m[2m=[0m226 [3mhwm_mb[0m[2m=[0m233
+[2m2026-09-15T06:26:18.770404Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.start" [3mrss_mb[0m[2m=[0m226 [3mhwm_mb[0m[2m=[0m233
+[2m2026-09-15T06:26:18.776662Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.parse_advices.end" [3mrss_mb[0m[2m=[0m232 [3mhwm_mb[0m[2m=[0m233
+[2m2026-09-15T06:26:18.776686Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.start" [3mrss_mb[0m[2m=[0m232 [3mhwm_mb[0m[2m=[0m233
+[2m2026-09-15T06:26:18.822342Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_permuted.end" [3mrss_mb[0m[2m=[0m237 [3mhwm_mb[0m[2m=[0m237
+[2m2026-09-15T06:26:18.822368Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.start" [3mrss_mb[0m[2m=[0m237 [3mhwm_mb[0m[2m=[0m237
+[2m2026-09-15T06:26:18.893054Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.permutations_commit.end" [3mrss_mb[0m[2m=[0m245 [3mhwm_mb[0m[2m=[0m245
+[2m2026-09-15T06:26:18.893079Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.start" [3mrss_mb[0m[2m=[0m245 [3mhwm_mb[0m[2m=[0m245
+[2m2026-09-15T06:26:18.944494Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"trace.lookups_product.end" [3mrss_mb[0m[2m=[0m245 [3mhwm_mb[0m[2m=[0m245
+[2m2026-09-15T06:26:18.967778Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.compute_trace.end" [3mrss_mb[0m[2m=[0m246 [3mhwm_mb[0m[2m=[0m246
+[2m2026-09-15T06:26:18.967800Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.start" [3mrss_mb[0m[2m=[0m246 [3mhwm_mb[0m[2m=[0m246
+[2m2026-09-15T06:26:18.967808Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.start" [3mrss_mb[0m[2m=[0m246 [3mhwm_mb[0m[2m=[0m246
+[2m2026-09-15T06:26:19.098968Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.drop_cosets.end" [3mrss_mb[0m[2m=[0m248 [3mhwm_mb[0m[2m=[0m248
+[2m2026-09-15T06:26:19.098999Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_h_poly.end" [3mrss_mb[0m[2m=[0m248 [3mhwm_mb[0m[2m=[0m248
+[2m2026-09-15T06:26:19.099006Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.start" [3mrss_mb[0m[2m=[0m248 [3mhwm_mb[0m[2m=[0m248
+[2m2026-09-15T06:26:19.194893Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.vanishing_construct.end" [3mrss_mb[0m[2m=[0m248 [3mhwm_mb[0m[2m=[0m248
+[2m2026-09-15T06:26:19.223984Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.compute_queries.start" [3mrss_mb[0m[2m=[0m248 [3mhwm_mb[0m[2m=[0m248
+[2m2026-09-15T06:26:19.224084Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.start" [3mrss_mb[0m[2m=[0m248 [3mhwm_mb[0m[2m=[0m248
+[2m2026-09-15T06:26:19.311870Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"finalise.multi_open.end" [3mrss_mb[0m[2m=[0m248 [3mhwm_mb[0m[2m=[0m248
+[2m2026-09-15T06:26:19.312882Z[0m [32m INFO[0m [2mmidnight_bench[0m[2m:[0m [3mstage[0m[2m=[0m"create_proof.finalise_proof.end" [3mrss_mb[0m[2m=[0m224 [3mhwm_mb[0m[2m=[0m247
+[2m2026-09-15T06:26:19.327432Z[0m [32m INFO[0m [2mactix_web::middleware::logger[0m[2m:[0m 192.168.65.1 POST /prove HTTP/1.1; took 0.632000s
