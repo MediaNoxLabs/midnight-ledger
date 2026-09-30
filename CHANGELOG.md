@@ -6,6 +6,50 @@ with `zswap` being tracked in [Changelog Zswap](./CHANGELOG_zswap.md).
 
 ## Unreleased
 
+- fix(transient-crypto)!: memory-mapped parameters are opt-in, and the default
+  owns its memory. `CompanionCache::from_trusted_dir` was made `unsafe` to
+  express that mapping a companion requires a directory nothing else writes to
+  — but safe `MidnightDataProvider::get_params` then called it on a directory
+  named by `MIDNIGHT_PP` or `XDG_CACHE_HOME`, so safe code plus an environment
+  variable still produced mapped memory whose soundness nobody had established.
+  A `SAFETY` comment that restates an obligation does not discharge it.
+  The obligation is now a value: `TrustedParamsDir`, whose only constructor is
+  `unsafe`, made once by whoever chose the directory. `CompanionCache::from_trusted_dir`
+  takes that value and is safe again, and mapping is reachable only by wrapping
+  a provider in `MappedParams`. An unwrapped provider never maps a file,
+  whatever is on disk and whatever the environment says; on a miss the wrapper
+  falls through, so the difference is performance, never behaviour. In the
+  proof server the promise is the operator's, via `MIDNIGHT_TRUST_PARAMS_DIR`,
+  unset by default.
+
+- fix(proof-server): classify prover failures by the provenance of the input
+  that failed, not by its `io::ErrorKind`. A corrupt or incompatible companion
+  in the server's *own* parameter cache fails with `InvalidData`, exactly like
+  a client sending malformed key bytes, and was answered with 400 — sending the
+  operator's problem to the client as a bug report about their valid request.
+  Failures from loading the server's parameters now carry their provenance from
+  where they happen, and the classifier reads that rather than guessing. The
+  kind test that remains covers the only other filesystem the prover touches on
+  its own account, the spill directory. `WorkError::ServerEnvironment` also
+  renders its message, so the 500 body names the operation and the path as the
+  README always said it did; every other 500 stays the bare `internal error`,
+  because that message is about the prover's internals.
+
+- fix(proof-server): bound ingress, not only proving. A `/prove`, `/prove-tx`
+  or `/check` request **takes its queue slot before its body is read** and
+  gets it back automatically if the request never becomes work, so the memory
+  in flight is bounded by `job_capacity` rather than by the number of open
+  connections; a full queue answers 429 immediately. A body over
+  `MIDNIGHT_PROOF_SERVER_MAX_REQUEST_BYTES` (default 512 MiB) is refused with
+  413, by its declared `Content-Length` where there is one and while streaming
+  otherwise, and one that takes longer than
+  `MIDNIGHT_PROOF_SERVER_READ_TIMEOUT` (default 120 s) with 408. The
+  proving-key material is shared with the resolver rather than deep-copied per
+  request, and the hex debug dump is skipped for a body over 64 KiB.
+  `job_capacity` had bounded proving but not ingress, so any number of
+  in-flight requests could each hold a k=20 body — hundreds of MB — while the
+  queue that was meant to bound the server sat full.
+
 ## Ledger 9.1.0.0-rc.4
 
 - fix: dust registration accounting moved to block time, rather than declared

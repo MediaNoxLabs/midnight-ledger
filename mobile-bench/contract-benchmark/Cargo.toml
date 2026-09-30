@@ -1,0 +1,103 @@
+[package]
+name = "contract-benchmark"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+
+# Library + headless CLI bench runner. The lib is consumed by
+# dioxus-wallet's Benchmark tab and the wasm wrapper; the bin
+# (`bench_cli`) lets us capture per-k timings + RSS on desktop
+# / Android without going through any UI.
+[lib]
+name = "contract_benchmark"
+crate-type = ["rlib"]
+
+[[bin]]
+name = "bench_cli"
+path = "src/bin/bench_cli.rs"
+# Skip on wasm32 — wasm-pack builds the lib only.
+required-features = []
+
+[dependencies]
+# Existing workspace members. Mirror `prover-core` so the proving
+# pipeline behaves identically and we share the params cache.
+zkir = { path = "../../zkir", package = "midnight-zkir" }
+transient-crypto = { path = "../../transient-crypto", package = "midnight-transient-crypto" }
+base-crypto = { path = "../../base-crypto", package = "midnight-base-crypto" }
+zswap = { path = "../../zswap", package = "midnight-zswap" }
+serialize = { path = "../../serialize", package = "midnight-serialize" }
+
+# R11 — wallet-internal tx-level prove/check needs the ledger
+# crate's prove::Resolver + dust::DustResolver + structure::
+# ProofPreimageVersioned to mirror the proof-server's endpoint
+# logic. Adds ~1 transitive crate's worth of compile time but
+# unlocks dropping the proof-server container.
+ledger = { path = "../../ledger", package = "midnight-ledger-v9" }
+
+# RNG common to every target. Tokio is split into per-target
+# blocks below — wasm32 doesn't support the multi-thread runtime.
+rand = { version = "0.8.4", features = ["getrandom"] }
+rand_chacha = "0.3.1"
+
+# SHA-256 of the serialised proof bytes — used as the per-(k, seed)
+# golden test-vector identity so any change in the prover pipeline
+# (zk patches, optimisations) is byte-exact verified against
+# `docs/test-vectors/proof-vectors.json`. Transitively present via
+# halo2; pin the same minor version (0.10) the rest of the graph
+# uses so we don't add a duplicate copy.
+sha2 = "0.10"
+
+# `Instant::now()` panics on `wasm32-unknown-unknown` because
+# the std `Instant` backend has no JS hook. `web-time` provides
+# an API-compatible drop-in that uses `std::time::Instant` on
+# native and `js_sys::Date.now()` on wasm.
+web-time = "1.1"
+
+# Errors / serde / utility.
+thiserror = "2.0"
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+# `tracing-subscriber::fmt` for `bench_cli`'s stderr output. Used
+# only by the binary, not the library — wasm/mobile callers get
+# their own subscriber via the dioxus-wallet's `WalletLogLayer`.
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# `mimalloc` as global allocator candidate. Mimalloc returns
+# freed pages to the OS more aggressively than macOS's
+# libmalloc, and its arena layout is friendlier to large
+# allocations (less pool fragmentation between phases). On
+# Android it's a wash with bionic libc — the OS already paces
+# memory tightly. Worth measuring on desktop to see if peak
+# RSS drops.
+mimalloc = { version = "0.1", default-features = false }
+
+# Native targets: full tokio runtime with multi-thread support
+# (used by `#[tokio::test]` and consumers like dioxus-wallet).
+# `libc` provides `getrusage` so `bench_cli` can capture peak RSS
+# (`ru_maxrss`) — the bench's current-RSS samples miss the brief
+# parse-time spike that `MIDNIGHT_LAZY_PARAMS=1` was designed to
+# reduce. wasm targets get a fallback that returns `None`.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1.46.1", features = ["rt", "rt-multi-thread", "macros", "sync"] }
+libc = "0.2"
+
+# `wasm32-unknown-unknown`: tokio is restricted to the
+# single-threaded feature set; multi-thread runtime + `net` /
+# `mio` won't compile. The benchmark's `async fn` body only
+# needs `rt` (executor), `macros` (`#[tokio::test]`), and
+# `sync` (channels) — driver is supplied by
+# `wasm-bindgen-futures` in the wasm wrapper crate.
+#
+# We also need explicit JS-backed `getrandom` implementations
+# (0.2 + 0.3 — the dual-version dance from `zkir-wasm`) to
+# satisfy the random source halo2 / midnight-proofs pulls in.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { version = "1.46.1", features = ["rt", "macros", "sync"] }
+getrandom_2 = { package = "getrandom", version = "^0.2.16", features = ["js"] }
+getrandom_3 = { package = "getrandom", version = "^0.3.4", features = ["wasm_js"] }
+
+[dev-dependencies]
+tokio = { version = "1.46.1", features = ["full"] }
+tempfile = "3"
