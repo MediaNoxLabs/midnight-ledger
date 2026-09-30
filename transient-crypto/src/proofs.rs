@@ -110,87 +110,140 @@ pub trait ParamsProverProvider {
 /// The hash used during proof transcript processing
 pub type TranscriptHash = blake2b_simd::State;
 
+/// Proof that a directory's published companions will not change while this
+/// process maps them.
+///
+/// Constructing one of these **is** the memory-safety obligation for
+/// memory-mapped parameters, and it is the only place that obligation is taken
+/// on. Everything downstream — [`CompanionCache`], [`MappedParams`] — accepts
+/// this value and is safe, because the promise has already been made by
+/// someone who was in a position to make it.
+///
+/// That is the difference from the version this replaces. Before, a safe
+/// `get_params` asserted the property itself, on a directory that came from
+/// `MIDNIGHT_PP` or `XDG_CACHE_HOME`, on behalf of callers it had never seen.
+/// A comment claiming "this is our own cache directory" is a statement about
+/// intent; it cannot establish anything about a path an environment variable
+/// chose.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Clone, Debug)]
+pub struct TrustedParamsDir(std::path::PathBuf);
+
+#[cfg(not(target_family = "wasm"))]
+impl TrustedParamsDir {
+    /// Promise that `dir` holds only immutable published companions.
+    ///
+    /// # Safety
+    ///
+    /// For as long as this value, any clone of it, and any [`ParamsProver`]
+    /// obtained through it are alive, no party — this process or any other —
+    /// may modify, truncate, or replace the contents of a published companion
+    /// in `dir`. `memmap2` states that in- or out-of-process modification of a
+    /// mapped file makes use of the map undefined behaviour, and the typed
+    /// slices handed out from a mapped companion are exactly that use.
+    ///
+    /// An application's own private cache directory qualifies, and the caller
+    /// is the one who knows whether theirs is. A world-writable directory, a
+    /// user-editable one, a network or cloud-synced folder, and anywhere a
+    /// companion arrives from another party do not.
+    ///
+    /// Declining to call this is always sound: parameters then load eagerly,
+    /// which costs memory and time and nothing else.
+    ///
+    /// ```compile_fail
+    /// // The promise cannot be made without an `unsafe` block, so a mapped
+    /// // companion cannot be reached by safe code at all.
+    /// use midnight_transient_crypto::proofs::TrustedParamsDir;
+    /// let _ = TrustedParamsDir::new("/tmp");
+    /// ```
+    #[allow(unsafe_code)]
+    pub unsafe fn new(dir: impl Into<std::path::PathBuf>) -> Self {
+        Self(dir.into())
+    }
+
+    /// The directory this promise was made about.
+    pub fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+/// Wraps a parameter provider so that published mmap companions in a
+/// [`TrustedParamsDir`] are used when present.
+///
+/// This is opt-in by construction: a provider that is not wrapped never maps a
+/// file, whatever is on disk and whatever the environment says. Wrapping is
+/// safe, because the obligation was discharged when the `TrustedParamsDir` was
+/// built.
+///
+/// On a miss the call falls through to the wrapped provider, so the difference
+/// between wrapped and unwrapped is performance, never behaviour.
+#[cfg(not(target_family = "wasm"))]
+pub struct MappedParams<P> {
+    inner: P,
+    dir: TrustedParamsDir,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl<P> MappedParams<P> {
+    /// Use companions published in `dir`, falling back to `inner`.
+    pub fn new(inner: P, dir: TrustedParamsDir) -> Self {
+        Self { inner, dir }
+    }
+
+    /// The provider this one falls back to.
+    pub fn inner(&self) -> &P {
+        &self.inner
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl<P: ParamsProverProvider> ParamsProverProvider for MappedParams<P> {
+    async fn get_params(&self, k: u8) -> io::Result<ParamsProver> {
+        let name = base_crypto::data_provider::MidnightDataProvider::name_k(k);
+        let cache = CompanionCache::from_trusted_dir(self.dir.clone());
+
+        // A published companion: zero-copy. `ParamsKZG.g` / `g_lagrange`
+        // become slice views into the file mapping, and the OS pages handle
+        // eviction under memory pressure.
+        if let Some(mapped) = cache.open(&name)? {
+            tracing::info!(target: "midnight_bench", stage = "load_mmap", k = k as u64);
+            return Ok(mapped);
+        }
+
+        // Build one on first miss, opt-in via `MIDNIGHT_MMAP_BUILD=1`: the
+        // build briefly pays the 2x eager-load peak, holding the just-parsed
+        // parameters while writing their bytes out. Concurrent first builders
+        // are fine — the cache publishes by atomic rename with one winner, and
+        // a loser opens the winner's complete file.
+        if ParamsLoadPolicy::process().build_mmap_companion {
+            tracing::info!(target: "midnight_bench", stage = "build_mmap_companion", k = k as u64);
+            let eager = self.inner.get_params(k).await?;
+            return cache.open_or_build(&name, || Ok(eager));
+        }
+
+        self.inner.get_params(k).await
+    }
+}
+
+/// Parameters always load into memory this provider owns.
+///
+/// Mapping a companion is not reachable from here, and no environment variable
+/// can make it reachable: it requires a [`TrustedParamsDir`], which requires an
+/// `unsafe` block, which requires a caller willing to make the promise about a
+/// directory they chose. Wrap this provider in [`MappedParams`] to opt in.
 impl ParamsProverProvider for base_crypto::data_provider::MidnightDataProvider {
     async fn get_params(&self, k: u8) -> io::Result<ParamsProver> {
         let name = Self::name_k(k);
-
-        // Paths A and A' are the mmap companion fast paths, and they
-        // exist only where `mmap(2)` does. Both are `return`s, so a
-        // target without them simply falls through to Path B below —
-        // which is a real path producing identical parameters, not a
-        // stub. Slower, and that is the correct trade for a target
-        // that cannot map a file at all.
-        //
-        // Gated as one block rather than per-statement: this is the
-        // whole host-only region, and splitting it would scatter `cfg`
-        // through a function whose shape is otherwise portable.
-        #[cfg(not(target_family = "wasm"))]
-        {
-            // Path A — a published mmap companion. The companion is a
-            // `bls_midnight_2pN.mmap` file the cache published earlier
-            // (typically built once on a roomy desktop and pushed to the
-            // device). When found we go zero-copy: `ParamsKZG.g`/
-            // `g_lagrange` become slice views into the file mapping and
-            // the OS pages handle eviction under memory pressure. Trigger
-            // is file presence, not an env var, so the optimisation lights
-            // up automatically wherever the companion is shipped.
-            //
-            // Everything companion-shaped goes through `CompanionCache`:
-            // it is the one place that may create a companion, and it never
-            // rewrites a published inode, which is what keeps every live
-            // mapping sound (F-034).
-            // SAFETY: `self.dir` is this data provider's own cache directory —
-            // the one it downloads the SRS into and the only writer it has. The
-            // obligation `from_trusted_dir` states is the same one already
-            // placed in those SRS files; a provider pointed at a directory
-            // other code may rewrite is misconfigured for both.
-            #[allow(unsafe_code)]
-            let cache = unsafe { CompanionCache::from_trusted_dir(self.dir.clone()) };
-            if let Some(mapped) = cache.open(&name)? {
-                tracing::info!(
-                    target: "midnight_bench",
-                    stage = "load_mmap",
-                    k = k as u64,
-                );
-                return Ok(mapped);
-            }
-
-            // Path A' — build the companion on first miss. Opt-in via
-            // `MIDNIGHT_MMAP_BUILD=1` because the build step briefly
-            // pays the 2× eager-load peak (we hold the just-parsed
-            // `ParamsProver` AND write its bytes out). Useful as a
-            // one-shot precompute on a desktop; the device should just
-            // ship the resulting `.mmap` files. Concurrent first builders
-            // are fine: the cache publishes by atomic rename with one
-            // winner, and a loser opens the winner's complete file.
-            if ParamsLoadPolicy::process().build_mmap_companion {
-                tracing::info!(
-                    target: "midnight_bench",
-                    stage = "build_mmap_companion",
-                    k = k as u64,
-                );
-                let reader = self
-                    .get_file(
-                        &name,
-                        &format!("public parameters for k={k} not found in cache"),
-                    )
-                    .await?;
-                let eager = ParamsProver::read(reader)?;
-                return cache.open_or_build(&name, || Ok(eager));
-            }
-        }
-
-        // Path B — eager `read_custom` (default) or seekable
-        // skip-g_lagrange `read_custom_lazy` when
-        // `MIDNIGHT_LAZY_PARAMS=1`. The lazy variant trades CPU
-        // (one inverse-NTT recompute per first commit_lagrange) for
-        // peak RAM during file parse.
         let reader = self
             .get_file(
                 &name,
                 &format!("public parameters for k={k} not found in cache"),
             )
             .await?;
+        // Eager `read_custom` by default; the seekable skip-`g_lagrange`
+        // `read_custom_lazy` under `MIDNIGHT_LAZY_PARAMS=1` trades one
+        // inverse-NTT recompute per first `commit_lagrange` for peak RAM
+        // during the parse. Both own their memory outright.
         if ParamsLoadPolicy::process().lazy_params {
             ParamsProver::read_lazy(reader)
         } else {
@@ -413,36 +466,21 @@ impl CompanionCache {
 
     const TEMP_INFIX: &'static str = ".tmp-";
 
-    /// A cache rooted at `dir`, able to open the companions published there.
+    /// A cache rooted at a directory whose companions will not change.
     ///
-    /// Publishing does not need this constructor — [`Self::publish_into`] is
-    /// safe. This one exists because *opening* hands out `ParamsProver`s whose
-    /// field elements are slices into a live file mapping.
+    /// Safe, and deliberately so: the obligation lives in
+    /// [`TrustedParamsDir`], whoever built that value has already made the
+    /// promise, and this function only carries it. There is exactly one
+    /// `unsafe` in the chain from an environment variable to a live mapping,
+    /// and it is at the point where a caller named the directory.
     ///
-    /// # Safety
-    ///
-    /// `dir` must be a directory only cooperating code writes to. For as long
-    /// as this cache or any clone of it exists, **and** for as long as any
-    /// [`ParamsProver`] it returned is alive, no party — this process or any
-    /// other — may modify, truncate, or replace the contents of a published
-    /// companion in it. `memmap2` states plainly that in- or out-of-process
-    /// modification of a mapped file makes use of the map undefined behaviour,
-    /// and the typed slices handed out here are exactly that use.
-    ///
-    /// The application's own cache directory qualifies. A world-writable
-    /// directory, a user-editable one, a network or cloud-synced folder, and
-    /// anywhere a companion arrives from another party do not.
-    ///
-    /// Mapping a single arbitrary path under the same obligation is
-    /// [`ParamsProver::read_mmap_path`].
-    ///
-    /// ```compile_fail
-    /// // The capability is not available without an `unsafe` block.
-    /// use midnight_transient_crypto::proofs::CompanionCache;
-    /// let _ = CompanionCache::from_trusted_dir("/tmp");
-    /// ```
-    pub unsafe fn from_trusted_dir(dir: impl Into<std::path::PathBuf>) -> Self {
-        Self { dir: dir.into() }
+    /// Publishing needs none of this — [`Self::publish_into`] is safe and
+    /// takes a plain path, because publication maps only its own private temp
+    /// file, which no other party can name.
+    pub fn from_trusted_dir(trusted: TrustedParamsDir) -> Self {
+        Self {
+            dir: trusted.path().to_path_buf(),
+        }
     }
 
     /// The directory companions are published into.
@@ -1586,7 +1624,7 @@ mod companion_cache_tests {
     #[test]
     fn nothing_published_opens_as_none() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
+        let cache = CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
         assert!(cache.open(NAME).expect("open").is_none());
         assert!(!cache.published_path(NAME).expect("valid name").exists());
     }
@@ -1600,7 +1638,8 @@ mod companion_cache_tests {
         let barrier = Arc::new(Barrier::new(8));
         let handles: Vec<_> = (0..8)
             .map(|_| {
-                let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
+                let cache =
+                    CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
                 let source = source.clone();
                 let builds = Arc::clone(&builds);
                 let barrier = Arc::clone(&barrier);
@@ -1637,7 +1676,7 @@ mod companion_cache_tests {
     #[test]
     fn a_published_companion_is_never_rewritten_while_mapped() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
+        let cache = CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
         let first = small_params();
         let mapped = cache
             .open_or_build(NAME, || Ok(first.clone()))
@@ -1672,7 +1711,8 @@ mod companion_cache_tests {
         let expected = digest(&source);
         let barrier = Arc::new(Barrier::new(5));
         let builder = {
-            let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
+            let cache =
+                CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
             let barrier = Arc::clone(&barrier);
             std::thread::spawn(move || {
                 barrier.wait();
@@ -1681,7 +1721,8 @@ mod companion_cache_tests {
         };
         let readers: Vec<_> = (0..4)
             .map(|_| {
-                let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
+                let cache =
+                    CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
                 let barrier = Arc::clone(&barrier);
                 std::thread::spawn(move || {
                     barrier.wait();
@@ -1712,7 +1753,7 @@ mod companion_cache_tests {
     #[test]
     fn a_write_failure_publishes_nothing_and_leaves_no_temp() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
+        let cache = CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
         let outcome = cache.publish_file(std::ffi::OsStr::new("k4.mmap"), |file| {
             file.write_all(b"partial")?;
             Err(io::Error::other("injected write failure"))
@@ -1726,7 +1767,7 @@ mod companion_cache_tests {
     #[test]
     fn a_short_write_fails_validation_and_publishes_nothing() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
+        let cache = CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
         let full = {
             let mut buf = Vec::new();
             small_params()
@@ -1749,7 +1790,7 @@ mod companion_cache_tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let cache_dir = dir.path().join("cache");
         std::fs::create_dir(&cache_dir).expect("mkdir");
-        let cache = unsafe { CompanionCache::from_trusted_dir(&cache_dir) };
+        let cache = CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(&cache_dir) });
         let cache_dir_for_hook = cache_dir.clone();
         let err = cache
             .publish_file(std::ffi::OsStr::new("k4.mmap"), move |file| {
@@ -1766,7 +1807,7 @@ mod companion_cache_tests {
     #[test]
     fn an_interrupted_publication_is_swept_and_a_fresh_one_is_not() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
+        let cache = CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
         let prefix = CompanionCache::temp_prefix(std::ffi::OsStr::new(&format!("{NAME}.mmap")));
 
         // A crashed publisher from long ago: garbage bytes, two hours old.
@@ -1800,7 +1841,7 @@ mod companion_cache_tests {
     #[test]
     fn open_or_build_reuses_a_publication_without_building() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
+        let cache = CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
         let source = small_params();
         cache
             .open_or_build(NAME, || Ok(source.clone()))
@@ -1822,7 +1863,7 @@ mod companion_cache_tests {
     fn a_name_that_is_not_one_component_is_refused_everywhere() {
         let dir = tempfile::tempdir().expect("tempdir");
         let outside = dir.path().parent().expect("parent").join("escaped.mmap");
-        let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
+        let cache = CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
 
         for name in [
             "../escaped",
@@ -1876,7 +1917,7 @@ mod companion_cache_tests {
     fn publication_refuses_a_name_that_is_not_one_component() {
         let dir = tempfile::tempdir().expect("tempdir");
         let outside = dir.path().parent().expect("parent").join("escaped.mmap");
-        let cache = unsafe { CompanionCache::from_trusted_dir(dir.path()) };
+        let cache = CompanionCache::from_trusted_dir(unsafe { TrustedParamsDir::new(dir.path()) });
 
         for name in ["../escaped.mmap", "sub/escaped.mmap", "..", ""] {
             let os = std::ffi::OsStr::new(name);
@@ -1900,6 +1941,73 @@ mod companion_cache_tests {
             std::fs::read_dir(dir.path()).expect("read_dir").count(),
             0,
             "a refused publication leaves the directory untouched"
+        );
+    }
+
+    /// The property the whole capability exists for: an unwrapped provider
+    /// does not map a companion even when one is published and readable.
+    ///
+    /// This is asserted by behaviour rather than by inspection, because the
+    /// defect it guards against was precisely a safe path reaching a mapping
+    /// that the types said it should not. `ParamsProver` does not say whether
+    /// it is mapped, so the test observes the next best thing: the wrapped
+    /// provider finds the published companion without ever consulting the
+    /// provider underneath, and the unwrapped one always consults it.
+    #[test]
+    fn an_unwrapped_provider_never_reaches_a_published_companion() {
+        use futures::executor::block_on;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Counting {
+            params: ParamsProver,
+            calls: AtomicUsize,
+        }
+        impl ParamsProverProvider for Counting {
+            async fn get_params(&self, _k: u8) -> io::Result<ParamsProver> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                Ok(self.params.clone())
+            }
+        }
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let source = small_params();
+        let name = base_crypto::data_provider::MidnightDataProvider::name_k(4);
+        let trusted = unsafe { TrustedParamsDir::new(dir.path()) };
+        CompanionCache::from_trusted_dir(trusted.clone())
+            .open_or_build(&name, || Ok(source.clone()))
+            .expect("publish a companion for k=4");
+        assert!(
+            dir.path().join(format!("{name}.mmap")).exists(),
+            "the companion must be on disk for this test to mean anything"
+        );
+
+        let bare = Counting {
+            params: source.clone(),
+            calls: AtomicUsize::new(0),
+        };
+        let got = block_on(bare.get_params(4)).expect("eager load");
+        assert_eq!(digest(&got), digest(&source));
+        assert_eq!(
+            bare.calls.load(Ordering::SeqCst),
+            1,
+            "an unwrapped provider must load its own parameters, published \
+             companion or not"
+        );
+
+        let wrapped = MappedParams::new(
+            Counting {
+                params: source.clone(),
+                calls: AtomicUsize::new(0),
+            },
+            trusted,
+        );
+        let got = block_on(wrapped.get_params(4)).expect("mapped load");
+        assert_eq!(digest(&got), digest(&source));
+        assert_eq!(
+            wrapped.inner().calls.load(Ordering::SeqCst),
+            0,
+            "the wrapped provider must serve from the companion without \
+             falling through"
         );
     }
 

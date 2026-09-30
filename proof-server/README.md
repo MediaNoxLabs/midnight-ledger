@@ -27,6 +27,7 @@ from the same environment:
 | `MIDNIGHT_SPILL_COSETS` | `1`: spill the extended-domain cosets to disk during proving |
 | `MIDNIGHT_SPILL_FLOOR_K` | spill only at `k ≥` this (default `18`); `0` forces it at every `k` |
 | `MIDNIGHT_SPILL_DIR` | directory for spill files; the OS temp dir when unset |
+| `MIDNIGHT_TRUST_PARAMS_DIR` | `1` to map parameter companions zero-copy; unset (safe, eager) by default — see below |
 
 Measured trade-offs (one host, `proof-server/bench/results/mlg004-2026-09-15/`):
 below the floor the flags cost nothing; at `k=19`, where heap proving fits in
@@ -34,6 +35,32 @@ below the floor the flags cost nothing; at `k=19`, where heap proving fits in
 is OOM-killed in an 8 GiB container, while `SPILL_PK=1 SPILL_COSETS=1`
 completes in **6 GiB** (peak 5.9 GiB) writing ~7 GB of temporary data per
 proof. A profile that is a sensible production default: spill on, floor `18`.
+
+## Mapping the parameter cache (`MIDNIGHT_TRUST_PARAMS_DIR`)
+
+Unset by default, and the default is the safe one. Parameters load eagerly into
+memory this process owns, which costs time and RAM at large `k` and nothing
+else.
+
+Set it to `1` and the server maps published `bls_midnight_2pN.mmap` companions
+zero-copy instead: `g` and `g_lagrange` become slice views into the file and the
+OS pages handle eviction. That is a large win at `k = 20`.
+
+**What you are asserting by setting it.** That nothing else will modify,
+truncate or replace a companion in the parameter directory (`MIDNIGHT_PP`, or
+`XDG_CACHE_HOME`) while this server runs. A mapped file that changes underneath
+the process is undefined behaviour, not a stale read — `memmap2` says so
+directly. A private cache directory owned by this deployment qualifies. A shared
+volume, a user-editable directory, a network or cloud-synced folder, or anywhere
+a companion arrives from somewhere else does not.
+
+Only you can make that promise. The directory is named by an environment
+variable, so no library underneath can tell a private cache from a shared
+volume; the person who deployed the server can. Nothing below this flag asserts
+it on your behalf — the promise is carried down as a value, and without it the
+mapping code is not reachable at all.
+
+The server logs the directory it will map at startup when the flag is on.
 
 ## Where to put the spill directory
 

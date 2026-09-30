@@ -88,7 +88,7 @@ impl ProverCore {
         let ir = IrSource::load(MINIMAL_IR_JSON.as_bytes())
             .map_err(|e| Error::Anyhow(anyhow::anyhow!("load ir: {e}")))?;
         let (pk, vk) = ir
-            .v2_keygen_at(k, &self.params.zswap.0)
+            .v2_keygen_at(k, &*self.params.mapped)
             .await
             .map_err(|e| Error::Anyhow(anyhow::anyhow!("keygen at k={k}: {e}")))?;
         let resolver = ExampleResolver { pk, vk, ir };
