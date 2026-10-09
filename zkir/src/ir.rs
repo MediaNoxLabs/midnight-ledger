@@ -129,9 +129,10 @@ impl Zkir for IrSource {
         let pis = preproc.pis.clone();
         let pi_skips = preproc.pi_skips.clone();
 
-        let pk = pk
-            .init()
-            .map_err(|_| anyhow::anyhow!("Could not init pk"))?;
+        // Keep the cause in the chain rather than dropping it: the proof
+        // server decides between "bad request" and "server misconfigured"
+        // from the underlying `io::Error`.
+        let pk = pk.init().map_err(|e| e.context("Could not init pk"))?;
 
         let proof = prove::<_, TranscriptHash>(params_k.as_ref(), &pk, self, &pis, preproc, rng)?;
 
@@ -577,9 +578,10 @@ impl IrSource {
         let params_k = params.get_params(pk.init()?.k()).await?;
         let pis = preproc.pis.clone();
 
-        let pk = pk
-            .init()
-            .map_err(|_| anyhow::anyhow!("Could not init pk"))?;
+        // Keep the cause in the chain rather than dropping it: the proof
+        // server decides between "bad request" and "server misconfigured"
+        // from the underlying `io::Error`.
+        let pk = pk.init().map_err(|e| e.context("Could not init pk"))?;
 
         let proof = prove::<_, TranscriptHash>(params_k.as_ref(), &pk, self, &pis, preproc, rng)?;
 

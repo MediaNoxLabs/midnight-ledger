@@ -25,7 +25,7 @@
     #  inputs.onchain-runtime.follows = "";
     #};
     zkir = {
-      url = "github:midnightntwrk/midnight-ledger/48b80c5d6d21412a0a531cf5336389656b9ad2d1";
+      url = "github:midnightntwrk/midnight-ledger/ac65d01dee84a36eaccd9b7f4631941239721e14";
       # Have the self-recursion just be a fixpoint.
       inputs.zkir.follows = "zkir";
     };
@@ -48,15 +48,24 @@
         # ("curl/$curlVersion Nixpkgs/$nixpkgsVersion"), so every crate tarball
         # missing from the binary cache fails to download.
         # To solve this we replace the agent for all fetchurl derivations.
+        # fetchurl's builder appends curlOptsList after its own --user-agent,
+        # and curl lets the last one win, so this overrides the default.
         overlays = [
           (_final: prev: {
-            fetchurl =
-              args:
-                (prev.fetchurl args).overrideAttrs (old: {
-                  curlOptsList =
-                    (old.curlOptsList or [])
-                    ++ ["--user-agent" "midnight-ledger/1.0"];
-                });
+            fetchurl = args:
+              (prev.fetchurl args).overrideAttrs (old: let
+                userAgent = ["--user-agent" "midnight-ledger/1.0"];
+                previous = old.curlOptsList or [];
+              in {
+                # nixpkgs >= 26.05 keeps curlOptsList as a list (structured
+                # attrs); 25.11 and earlier store `lib.escapeShellArgs` of it,
+                # i.e. a string the builder eval's into the curl argv array.
+                # Both shapes are in use across our flake inputs.
+                curlOptsList =
+                  if builtins.isList previous
+                  then previous ++ userAgent
+                  else previous + " " + prev.lib.escapeShellArgs userAgent;
+              });
           })
         ];
         pkgs = import nixpkgs {inherit system overlays;};
@@ -88,6 +97,25 @@
           ./generate-cost-model
           ./rustfmt.toml
           ./wasm-proving-demos/zkir-mt
+          # The three `mobile-bench` crates are `[workspace] members` in
+          # Cargo.toml, and this filter is an allowlist — so omitting them
+          # made every nix build fail at manifest load:
+          #
+          #   failed to load manifest for workspace member
+          #   `/build/inclusive/mobile-bench/prover-core`
+          #
+          # Cargo resolves the whole workspace before building anything, so
+          # a member missing from the source closure breaks derivations that
+          # do not depend on it at all — which is why `zkir-v3-static` and
+          # the test artifacts were failing.
+          #
+          # Listing them here is the minimal fix. The better shape is for
+          # benchmark crates not to be members of the library workspace at
+          # all, but that carries a real hazard — a separate workspace needs
+          # its own `[patch.crates-io]`, and getting that wrong silently
+          # drops the patched midnight-proofs — so it is tracked separately
+          # rather than bundled in here.
+          ./mobile-bench
         ];
         rust = fenix.packages.${system};
         # Temporary until 0.22.0 is in nixpkgs, as this is required to parse
